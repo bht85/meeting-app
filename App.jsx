@@ -13,9 +13,9 @@ import {
   Layout, 
   Filter, 
   Download,
-  Edit,      // 수정 아이콘 추가
-  Trash2,    // 삭제 아이콘 추가
-  X          // 취소 아이콘 추가
+  Edit,      
+  Trash2,    
+  X          
 } from 'lucide-react';
 
 // --- Firebase 라이브러리 ---
@@ -33,9 +33,9 @@ import {
   query, 
   onSnapshot,
   serverTimestamp,
-  doc,          // 문서 참조 함수 추가
-  updateDoc,    // 수정 함수 추가
-  deleteDoc     // 삭제 함수 추가
+  doc,          
+  updateDoc,    
+  deleteDoc     
 } from 'firebase/firestore';
 
 // --- [설정] 사용자분의 Firebase 키값 적용 완료 ---
@@ -50,7 +50,6 @@ const firebaseConfig = {
 };
 
 // --- Firebase 초기화 ---
-// 중복 초기화 방지
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 const auth = getAuth(app);
@@ -62,10 +61,11 @@ const DEPARTMENTS = [
   "IT지원팀", "법무팀", "운영팀", "영업팀", "전략기획팀", "마케팅팀"
 ];
 
+// [수정됨] 입력 예시(Placeholder)에 들여쓰기 포맷 적용
 const SECTIONS = [
-  { id: 'report', label: '가. 보고사항', icon: FileText, placeholder: '- 주요 보고사항을 입력하세요.\n- 줄바꿈으로 내용을 구분합니다.' },
-  { id: 'progress', label: '나. 진행업무', icon: Clock, placeholder: '- 현재 진행 중인 업무를 입력하세요.' },
-  { id: 'discussion', label: '다. 협의업무', icon: MessageSquare, placeholder: '- 타 부서 협조나 논의가 필요한 사항을 입력하세요.' }
+  { id: 'report', label: '가. 보고사항', icon: FileText, placeholder: '     - 주요 보고사항을 입력하세요.\n     - 줄바꿈을 하면 자동으로 서식이 적용됩니다.' },
+  { id: 'progress', label: '나. 진행업무', icon: Clock, placeholder: '     - 현재 진행 중인 업무를 입력하세요.' },
+  { id: 'discussion', label: '다. 협의업무', icon: MessageSquare, placeholder: '     - 타 부서 협조나 논의가 필요한 사항을 입력하세요.' }
 ];
 
 // --- 메인 앱 컴포넌트 ---
@@ -73,7 +73,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [minutes, setMinutes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('list'); // 'list' or 'write'
+  const [view, setView] = useState('list'); 
   
   // 필터 상태
   const [selectedDate, setSelectedDate] = useState('');
@@ -89,17 +89,15 @@ function App() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // [추가] 수정 모드 상태 (수정할 문서의 ID를 저장)
+  // 수정 모드 상태
   const [editingId, setEditingId] = useState(null);
 
   // 인증 및 데이터 불러오기
   useEffect(() => {
-    // 1. 익명 로그인 시도
     signInAnonymously(auth).catch((error) => {
       console.error("인증 오류:", error);
     });
 
-    // 2. 로그인 상태 확인
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
     });
@@ -108,7 +106,6 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // 3. 데이터 실시간 구독 (weekly_minutes 컬렉션)
     const q = query(collection(db, 'weekly_minutes'));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -138,7 +135,6 @@ function App() {
     setInputData(prev => ({ ...prev, [field]: value }));
   };
 
-  // [추가] 수정 버튼 클릭 시 실행
   const handleEditClick = (minute) => {
     setInputDate(minute.date);
     setInputDept(minute.department);
@@ -147,19 +143,17 @@ function App() {
       progress: minute.progress,
       discussion: minute.discussion
     });
-    setEditingId(minute.id); // 수정할 ID 설정
-    setView('write');        // 작성 화면으로 이동
-    window.scrollTo(0, 0);   // 화면 맨 위로 이동
+    setEditingId(minute.id);
+    setView('write');
+    window.scrollTo(0, 0);
   };
 
-  // [추가] 수정 취소
   const handleCancelEdit = () => {
     setEditingId(null);
     setInputData({ report: '', progress: '', discussion: '' });
     setView('list');
   };
 
-  // [추가] 삭제 버튼 클릭 시 실행
   const handleDeleteClick = async (id) => {
     if (window.confirm("정말 이 회의록을 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.")) {
       try {
@@ -172,7 +166,6 @@ function App() {
     }
   };
 
-  // 저장 및 수정 제출 처리
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!user) {
@@ -183,7 +176,6 @@ function App() {
 
     try {
       if (editingId) {
-        // [수정 로직] 기존 문서 업데이트
         await updateDoc(doc(db, "weekly_minutes", editingId), {
           date: inputDate,
           department: inputDept,
@@ -194,7 +186,6 @@ function App() {
         });
         alert('회의록이 성공적으로 수정되었습니다.');
       } else {
-        // [신규 등록 로직] 새 문서 추가
         await addDoc(collection(db, 'weekly_minutes'), {
           date: inputDate,
           department: inputDept,
@@ -207,7 +198,6 @@ function App() {
         alert('회의록이 등록되었습니다.');
       }
 
-      // 폼 초기화 및 목록으로 이동
       setInputData({ report: '', progress: '', discussion: '' });
       setEditingId(null);
       setView('list');
@@ -219,7 +209,7 @@ function App() {
     }
   };
 
-  // 데이터 그룹화 및 필터링
+  // 데이터 그룹화
   const groupedMinutes = minutes.reduce((acc, curr) => {
     const date = curr.date;
     if (!acc[date]) acc[date] = [];
@@ -238,6 +228,7 @@ function App() {
       return acc;
     }, {});
 
+  // --- [수정됨] 엑셀 다운로드 기능 (자동 들여쓰기 서식 적용) ---
   const handleExportCSV = () => {
     let dataToExport = [];
     Object.values(filteredGroups).forEach(group => {
@@ -249,23 +240,37 @@ function App() {
       return;
     }
 
-    // 엑셀에서 한글 깨짐 방지용 BOM
     let csvContent = "\uFEFF"; 
-    
-    // 헤더 (세로형 리스트 구조)
     csvContent += "날짜,부서,구분,내용\n";
+
+    // 텍스트 포매팅 함수: 줄바꿈마다 "     - " 추가
+    const formatTextForExcel = (text) => {
+      if (!text) return "";
+      return text.split('\n').map(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return ""; // 빈 줄 제외
+        // 이미 하이픈으로 시작하면 들여쓰기만 추가, 아니면 하이픈도 추가
+        if (trimmed.startsWith('-')) {
+           return `     ${trimmed}`; 
+        }
+        return `     - ${trimmed}`;
+      }).join('\n');
+    };
 
     dataToExport.forEach(row => {
       const cleanText = (text) => text ? `"${text.replace(/"/g, '""')}"` : "";
 
       if (row.report && row.report.trim() !== "") {
-        csvContent += `${row.date},${row.department},보고사항,${cleanText(row.report)}\n`;
+        const formattedReport = formatTextForExcel(row.report);
+        csvContent += `${row.date},${row.department},보고사항,${cleanText(formattedReport)}\n`;
       }
       if (row.progress && row.progress.trim() !== "") {
-        csvContent += `${row.date},${row.department},진행업무,${cleanText(row.progress)}\n`;
+        const formattedProgress = formatTextForExcel(row.progress);
+        csvContent += `${row.date},${row.department},진행업무,${cleanText(formattedProgress)}\n`;
       }
       if (row.discussion && row.discussion.trim() !== "") {
-        csvContent += `${row.date},${row.department},협의업무,${cleanText(row.discussion)}\n`;
+        const formattedDiscussion = formatTextForExcel(row.discussion);
+        csvContent += `${row.date},${row.department},협의업무,${cleanText(formattedDiscussion)}\n`;
       }
     });
 
@@ -289,7 +294,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-100 font-sans text-gray-800">
-      {/* 상단 네비게이션 */}
       <nav className="bg-white shadow-md sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
@@ -336,10 +340,8 @@ function App() {
         </div>
       </nav>
 
-      {/* 메인 컨텐츠 영역 */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {view === 'write' ? (
-          /* --- 작성/수정 모드 --- */
           <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden">
             <div className={`px-6 py-4 ${editingId ? 'bg-indigo-600' : 'bg-blue-600'}`}>
               <h2 className="text-xl font-bold text-white flex items-center">
@@ -432,7 +434,6 @@ function App() {
             </form>
           </div>
         ) : (
-          /* --- 조회 모드 --- */
           <div className="space-y-6">
             <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col md:flex-row gap-4 items-center justify-between">
               <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full md:w-auto">
@@ -448,7 +449,7 @@ function App() {
                   <option value="">전체 날짜</option>
                   {Object.keys(groupedMinutes).sort((a,b) => b.localeCompare(a)).map(date => (
                     <option key={date} value={date}>{date}</option>
-                  ))}
+                  ))}ㅁ
                 </select>
                 <select 
                   value={selectedDept} 
@@ -496,7 +497,6 @@ function App() {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       {dateMinutes.map((minute) => (
                         <div key={minute.id} className="bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow overflow-hidden flex flex-col relative group">
-                          {/* [추가] 수정/삭제 버튼 (마우스 올리면 보임) */}
                           <div className="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button 
                               onClick={() => handleEditClick(minute)}
@@ -565,7 +565,6 @@ function App() {
   );
 }
 
-// React 18 스타일의 루트 렌더링 (안전한 null 체크 포함)
 const rootElement = document.getElementById('root');
 if (rootElement) {
   const root = ReactDOM.createRoot(rootElement);
