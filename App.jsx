@@ -7,11 +7,11 @@ import {
   Search, 
   Save, 
   Users, 
-  Clock,
-  Briefcase,
-  MessageSquare,
-  Layout,
-  Filter,
+  Clock, 
+  Briefcase, 
+  MessageSquare, 
+  Layout, 
+  Filter, 
   Download
 } from 'lucide-react';
 
@@ -177,6 +177,7 @@ function App() {
       return acc;
     }, {});
 
+  // --- [수정됨] 엑셀 다운로드 기능 (세로 리스트 형태) ---
   const handleExportCSV = () => {
     let dataToExport = [];
     Object.values(filteredGroups).forEach(group => {
@@ -188,19 +189,33 @@ function App() {
       return;
     }
 
+    // 엑셀에서 한글 깨짐 방지용 BOM
     let csvContent = "\uFEFF"; 
-    csvContent += "날짜,부서,보고사항,진행업무,협의업무\n";
+    
+    // 헤더 (가로형이 아닌 세로형 리스트 구조)
+    csvContent += "날짜,부서,구분,내용\n";
 
     dataToExport.forEach(row => {
-      const cleanText = (text) => text ? `"${text.replace(/"/g, '""')}"` : '""';
-      csvContent += `${row.date},${row.department},${cleanText(row.report)},${cleanText(row.progress)},${cleanText(row.discussion)}\n`;
+      // 엑셀 셀 내 줄바꿈이나 콤마 처리를 위한 텍스트 정리 함수
+      const cleanText = (text) => text ? `"${text.replace(/"/g, '""')}"` : "";
+
+      // 각 항목(보고/진행/협의)이 내용이 있을 때만 한 줄씩 추가
+      if (row.report && row.report.trim() !== "") {
+        csvContent += `${row.date},${row.department},보고사항,${cleanText(row.report)}\n`;
+      }
+      if (row.progress && row.progress.trim() !== "") {
+        csvContent += `${row.date},${row.department},진행업무,${cleanText(row.progress)}\n`;
+      }
+      if (row.discussion && row.discussion.trim() !== "") {
+        csvContent += `${row.date},${row.department},협의업무,${cleanText(row.discussion)}\n`;
+      }
     });
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `주간회의록_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute("download", `주간회의록_리스트형_${new Date().toISOString().slice(0,10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
