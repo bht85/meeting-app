@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import { 
   Calendar, 
@@ -61,11 +61,11 @@ const DEPARTMENTS = [
   "IT지원팀", "법무팀", "운영팀", "영업팀", "전략기획팀", "마케팅팀"
 ];
 
-// [수정됨] 입력 예시(Placeholder)에 들여쓰기 포맷 적용
+// 입력 예시 문구
 const SECTIONS = [
-  { id: 'report', label: '가. 보고사항', icon: FileText, placeholder: '     - 주요 보고사항을 입력하세요.\n     - 줄바꿈을 하면 자동으로 서식이 적용됩니다.' },
-  { id: 'progress', label: '나. 진행업무', icon: Clock, placeholder: '     - 현재 진행 중인 업무를 입력하세요.' },
-  { id: 'discussion', label: '다. 협의업무', icon: MessageSquare, placeholder: '     - 타 부서 협조나 논의가 필요한 사항을 입력하세요.' }
+  { id: 'report', label: '가. 보고사항', icon: FileText, placeholder: '내용이 없으면 자동으로 \'특이사항 없음\'으로 저장됩니다.' },
+  { id: 'progress', label: '나. 진행업무', icon: Clock, placeholder: '내용이 없으면 자동으로 \'특이사항 없음\'으로 저장됩니다.' },
+  { id: 'discussion', label: '다. 협의업무', icon: MessageSquare, placeholder: '내용이 없으면 자동으로 \'특이사항 없음\'으로 저장됩니다.' }
 ];
 
 // --- 메인 앱 컴포넌트 ---
@@ -135,6 +135,38 @@ function App() {
     setInputData(prev => ({ ...prev, [field]: value }));
   };
 
+  // 텍스트박스 클릭(포커스) 시 자동 서식 입력
+  const handleFocus = (field) => {
+    if (!inputData[field] || inputData[field].trim() === '') {
+      handleInputChange(field, '     - ');
+    }
+  };
+
+  // 엔터 키 입력 시 자동 들여쓰기 적용
+  const handleKeyDown = (e, field) => {
+    if (e.key === 'Enter') {
+      e.preventDefault(); 
+      const { selectionStart, selectionEnd } = e.target;
+      const value = inputData[field];
+      
+      // 현재 커서 위치에 줄바꿈 + 서식 삽입
+      const newValue = 
+        value.substring(0, selectionStart) + 
+        '\n     - ' + 
+        value.substring(selectionEnd);
+
+      handleInputChange(field, newValue);
+
+      // 커서 위치 조정
+      setTimeout(() => {
+        if(e.target) {
+          e.target.selectionStart = selectionStart + 8; 
+          e.target.selectionEnd = selectionStart + 8;
+        }
+      }, 0);
+    }
+  };
+
   const handleEditClick = (minute) => {
     setInputDate(minute.date);
     setInputDept(minute.department);
@@ -166,6 +198,7 @@ function App() {
     }
   };
 
+  // [수정됨] 저장 시 빈 내용 자동 채움 처리
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!user) {
@@ -174,14 +207,30 @@ function App() {
     }
     setIsSubmitting(true);
 
+    // 자동 채움 헬퍼 함수
+    const processInput = (text) => {
+        const trimmed = text ? text.trim() : '';
+        // 1. 아예 비어있거나 ('')
+        // 2. 자동완성된 하이픈만 있거나 ('-')
+        // 인 경우 "특이사항 없음"으로 대체
+        if (trimmed === '' || trimmed === '-') {
+            return '     - 특이사항 없음';
+        }
+        return text;
+    };
+
+    const finalReport = processInput(inputData.report);
+    const finalProgress = processInput(inputData.progress);
+    const finalDiscussion = processInput(inputData.discussion);
+
     try {
       if (editingId) {
         await updateDoc(doc(db, "weekly_minutes", editingId), {
           date: inputDate,
           department: inputDept,
-          report: inputData.report,
-          progress: inputData.progress,
-          discussion: inputData.discussion,
+          report: finalReport,
+          progress: finalProgress,
+          discussion: finalDiscussion,
           updatedAt: serverTimestamp()
         });
         alert('회의록이 성공적으로 수정되었습니다.');
@@ -189,9 +238,9 @@ function App() {
         await addDoc(collection(db, 'weekly_minutes'), {
           date: inputDate,
           department: inputDept,
-          report: inputData.report,
-          progress: inputData.progress,
-          discussion: inputData.discussion,
+          report: finalReport,
+          progress: finalProgress,
+          discussion: finalDiscussion,
           authorId: user.uid,
           createdAt: serverTimestamp()
         });
@@ -228,7 +277,7 @@ function App() {
       return acc;
     }, {});
 
-  // --- [수정됨] 엑셀 다운로드 기능 (자동 들여쓰기 서식 적용) ---
+  // 엑셀 다운로드 기능
   const handleExportCSV = () => {
     let dataToExport = [];
     Object.values(filteredGroups).forEach(group => {
@@ -243,15 +292,14 @@ function App() {
     let csvContent = "\uFEFF"; 
     csvContent += "날짜,부서,구분,내용\n";
 
-    // 텍스트 포매팅 함수: 줄바꿈마다 "     - " 추가
+    // 텍스트 포매팅 함수
     const formatTextForExcel = (text) => {
       if (!text) return "";
       return text.split('\n').map(line => {
         const trimmed = line.trim();
-        if (!trimmed) return ""; // 빈 줄 제외
-        // 이미 하이픈으로 시작하면 들여쓰기만 추가, 아니면 하이픈도 추가
-        if (trimmed.startsWith('-')) {
-           return `     ${trimmed}`; 
+        if (!trimmed) return ""; 
+        if (line.includes("- ")) {
+           return `     ${line.trim()}`; 
         }
         return `     - ${trimmed}`;
       }).join('\n');
@@ -400,6 +448,8 @@ function App() {
                     <textarea
                       value={inputData[section.id]}
                       onChange={(e) => handleInputChange(section.id, e.target.value)}
+                      onFocus={() => handleFocus(section.id)} // 클릭 시 자동 서식
+                      onKeyDown={(e) => handleKeyDown(e, section.id)} // 엔터 시 자동 서식
                       placeholder={section.placeholder}
                       rows={5}
                       className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-3 text-sm"
@@ -449,7 +499,7 @@ function App() {
                   <option value="">전체 날짜</option>
                   {Object.keys(groupedMinutes).sort((a,b) => b.localeCompare(a)).map(date => (
                     <option key={date} value={date}>{date}</option>
-                  ))}ㅁ
+                  ))}
                 </select>
                 <select 
                   value={selectedDept} 
