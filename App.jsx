@@ -12,7 +12,10 @@ import {
   MessageSquare, 
   Layout, 
   Filter, 
-  Download
+  Download,
+  Edit,      // 수정 아이콘 추가
+  Trash2,    // 삭제 아이콘 추가
+  X          // 취소 아이콘 추가
 } from 'lucide-react';
 
 // --- Firebase 라이브러리 ---
@@ -29,7 +32,10 @@ import {
   addDoc, 
   query, 
   onSnapshot,
-  serverTimestamp 
+  serverTimestamp,
+  doc,          // 문서 참조 함수 추가
+  updateDoc,    // 수정 함수 추가
+  deleteDoc     // 삭제 함수 추가
 } from 'firebase/firestore';
 
 // --- [설정] 사용자분의 Firebase 키값 적용 완료 ---
@@ -44,7 +50,7 @@ const firebaseConfig = {
 };
 
 // --- Firebase 초기화 ---
-// 초기화 중복 방지
+// 중복 초기화 방지
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 const auth = getAuth(app);
@@ -82,6 +88,9 @@ function App() {
     discussion: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // [추가] 수정 모드 상태 (수정할 문서의 ID를 저장)
+  const [editingId, setEditingId] = useState(null);
 
   // 인증 및 데이터 불러오기
   useEffect(() => {
@@ -129,6 +138,41 @@ function App() {
     setInputData(prev => ({ ...prev, [field]: value }));
   };
 
+  // [추가] 수정 버튼 클릭 시 실행
+  const handleEditClick = (minute) => {
+    setInputDate(minute.date);
+    setInputDept(minute.department);
+    setInputData({
+      report: minute.report,
+      progress: minute.progress,
+      discussion: minute.discussion
+    });
+    setEditingId(minute.id); // 수정할 ID 설정
+    setView('write');        // 작성 화면으로 이동
+    window.scrollTo(0, 0);   // 화면 맨 위로 이동
+  };
+
+  // [추가] 수정 취소
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setInputData({ report: '', progress: '', discussion: '' });
+    setView('list');
+  };
+
+  // [추가] 삭제 버튼 클릭 시 실행
+  const handleDeleteClick = async (id) => {
+    if (window.confirm("정말 이 회의록을 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.")) {
+      try {
+        await deleteDoc(doc(db, "weekly_minutes", id));
+        alert("삭제되었습니다.");
+      } catch (error) {
+        console.error("삭제 오류:", error);
+        alert("삭제 중 오류가 발생했습니다.");
+      }
+    }
+  };
+
+  // 저장 및 수정 제출 처리
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!user) {
@@ -138,18 +182,34 @@ function App() {
     setIsSubmitting(true);
 
     try {
-      await addDoc(collection(db, 'weekly_minutes'), {
-        date: inputDate,
-        department: inputDept,
-        report: inputData.report,
-        progress: inputData.progress,
-        discussion: inputData.discussion,
-        authorId: user.uid,
-        createdAt: serverTimestamp()
-      });
+      if (editingId) {
+        // [수정 로직] 기존 문서 업데이트
+        await updateDoc(doc(db, "weekly_minutes", editingId), {
+          date: inputDate,
+          department: inputDept,
+          report: inputData.report,
+          progress: inputData.progress,
+          discussion: inputData.discussion,
+          updatedAt: serverTimestamp()
+        });
+        alert('회의록이 성공적으로 수정되었습니다.');
+      } else {
+        // [신규 등록 로직] 새 문서 추가
+        await addDoc(collection(db, 'weekly_minutes'), {
+          date: inputDate,
+          department: inputDept,
+          report: inputData.report,
+          progress: inputData.progress,
+          discussion: inputData.discussion,
+          authorId: user.uid,
+          createdAt: serverTimestamp()
+        });
+        alert('회의록이 등록되었습니다.');
+      }
 
+      // 폼 초기화 및 목록으로 이동
       setInputData({ report: '', progress: '', discussion: '' });
-      alert('회의록이 등록되었습니다.');
+      setEditingId(null);
       setView('list');
     } catch (error) {
       console.error("저장 오류: ", error);
@@ -178,7 +238,6 @@ function App() {
       return acc;
     }, {});
 
-  // --- [수정됨] 엑셀 다운로드 기능 (세로 리스트 형태) ---
   const handleExportCSV = () => {
     let dataToExport = [];
     Object.values(filteredGroups).forEach(group => {
@@ -193,14 +252,12 @@ function App() {
     // 엑셀에서 한글 깨짐 방지용 BOM
     let csvContent = "\uFEFF"; 
     
-    // 헤더 (가로형이 아닌 세로형 리스트 구조)
+    // 헤더 (세로형 리스트 구조)
     csvContent += "날짜,부서,구분,내용\n";
 
     dataToExport.forEach(row => {
-      // 엑셀 셀 내 줄바꿈이나 콤마 처리를 위한 텍스트 정리 함수
       const cleanText = (text) => text ? `"${text.replace(/"/g, '""')}"` : "";
 
-      // 각 항목(보고/진행/협의)이 내용이 있을 때만 한 줄씩 추가
       if (row.report && row.report.trim() !== "") {
         csvContent += `${row.date},${row.department},보고사항,${cleanText(row.report)}\n`;
       }
@@ -247,7 +304,7 @@ function App() {
             </div>
             <div className="flex items-center space-x-2 sm:space-x-4">
               <button
-                onClick={() => setView('list')}
+                onClick={() => { setView('list'); setEditingId(null); }}
                 className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   view === 'list' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
                 }`}
@@ -259,7 +316,11 @@ function App() {
                 </div>
               </button>
               <button
-                onClick={() => setView('write')}
+                onClick={() => { 
+                  setView('write'); 
+                  setEditingId(null); 
+                  setInputData({ report: '', progress: '', discussion: '' });
+                }}
                 className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   view === 'write' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
                 }`}
@@ -278,12 +339,21 @@ function App() {
       {/* 메인 컨텐츠 영역 */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {view === 'write' ? (
-          /* --- 작성 모드 --- */
+          /* --- 작성/수정 모드 --- */
           <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden">
-            <div className="bg-blue-600 px-6 py-4">
+            <div className={`px-6 py-4 ${editingId ? 'bg-indigo-600' : 'bg-blue-600'}`}>
               <h2 className="text-xl font-bold text-white flex items-center">
-                <PlusCircle className="w-6 h-6 mr-2" />
-                주간회의록 작성
+                {editingId ? (
+                  <>
+                    <Edit className="w-6 h-6 mr-2" />
+                    주간회의록 수정
+                  </>
+                ) : (
+                  <>
+                    <PlusCircle className="w-6 h-6 mr-2" />
+                    주간회의록 작성
+                  </>
+                )}
               </h2>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
@@ -339,17 +409,24 @@ function App() {
               <div className="pt-4 flex justify-end space-x-3 border-t border-gray-100">
                 <button
                   type="button"
-                  onClick={() => setView('list')}
-                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  onClick={handleCancelEdit}
+                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 flex items-center"
                 >
+                  <X className="w-4 h-4 mr-1" />
                   취소
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center"
+                  className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white flex items-center ${
+                    editingId 
+                      ? 'bg-indigo-600 hover:bg-indigo-700' 
+                      : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
                 >
-                  {isSubmitting ? '저장 중...' : <><Save className="w-4 h-4 mr-2" />등록하기</>}
+                  {isSubmitting ? '처리 중...' : (
+                    editingId ? <><Save className="w-4 h-4 mr-2" />수정 완료</> : <><Save className="w-4 h-4 mr-2" />등록하기</>
+                  )}
                 </button>
               </div>
             </form>
@@ -418,7 +495,25 @@ function App() {
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       {dateMinutes.map((minute) => (
-                        <div key={minute.id} className="bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow overflow-hidden flex flex-col">
+                        <div key={minute.id} className="bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow overflow-hidden flex flex-col relative group">
+                          {/* [추가] 수정/삭제 버튼 (마우스 올리면 보임) */}
+                          <div className="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button 
+                              onClick={() => handleEditClick(minute)}
+                              className="p-2 bg-gray-100 hover:bg-indigo-100 text-gray-600 hover:text-indigo-600 rounded-full transition-colors"
+                              title="수정"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteClick(minute.id)}
+                              className="p-2 bg-gray-100 hover:bg-red-100 text-gray-600 hover:text-red-600 rounded-full transition-colors"
+                              title="삭제"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+
                           <div className="p-5 flex-1">
                             <div className="flex justify-between items-start mb-4">
                               <h3 className="text-lg font-bold text-gray-900 flex items-center">
