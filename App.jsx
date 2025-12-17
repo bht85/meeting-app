@@ -44,6 +44,7 @@ const firebaseConfig = {
 };
 
 // --- Firebase 초기화 ---
+// 초기화 중복 방지
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 const auth = getAuth(app);
@@ -469,7 +470,11 @@ function App() {
   );
 }
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<App />);
+// React 18 스타일의 루트 렌더링 (안전한 null 체크 포함)
+const rootElement = document.getElementById('root');
+if (rootElement) {
+  const root = ReactDOM.createRoot(rootElement);
+  root.render(<App />);
+}
 
 export default App;
