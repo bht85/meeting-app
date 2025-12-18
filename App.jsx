@@ -55,10 +55,14 @@ const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// --- 부서 및 입력 항목 데이터 ---
+// --- [업데이트됨] 부서 목록 및 순서 변경 ---
+// 요청하신 5개 팀으로 한정하고 순서를 고정했습니다.
 const DEPARTMENTS = [
-  "재무팀", "인사총무팀", "해외사업팀", "구매물류팀", 
-  "IT지원팀", "법무팀", "운영팀", "영업팀", "전략기획팀", "마케팅팀"
+  "재무팀", 
+  "인사총무팀", 
+  "해외사업팀", 
+  "구매물류팀", 
+  "IT지원팀"
 ];
 
 // 입력 예시 문구
@@ -114,7 +118,7 @@ function App() {
         ...doc.data()
       }));
       
-      // 날짜 내림차순 -> 부서순 정렬
+      // 정렬 로직: 날짜 내림차순 -> 부서 순서(DEPARTMENTS 배열 순서)
       loadedMinutes.sort((a, b) => {
         if (a.date !== b.date) return b.date.localeCompare(a.date);
         return DEPARTMENTS.indexOf(a.department) - DEPARTMENTS.indexOf(b.department);
@@ -198,7 +202,6 @@ function App() {
     }
   };
 
-  // [수정됨] 저장 시 빈 내용 자동 채움 처리
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!user) {
@@ -210,9 +213,6 @@ function App() {
     // 자동 채움 헬퍼 함수
     const processInput = (text) => {
         const trimmed = text ? text.trim() : '';
-        // 1. 아예 비어있거나 ('')
-        // 2. 자동완성된 하이픈만 있거나 ('-')
-        // 인 경우 "특이사항 없음"으로 대체
         if (trimmed === '' || trimmed === '-') {
             return '     - 특이사항 없음';
         }
@@ -292,7 +292,6 @@ function App() {
     let csvContent = "\uFEFF"; 
     csvContent += "날짜,부서,구분,내용\n";
 
-    // 텍스트 포매팅 함수
     const formatTextForExcel = (text) => {
       if (!text) return "";
       return text.split('\n').map(line => {
