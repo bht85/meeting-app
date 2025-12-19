@@ -15,7 +15,8 @@ import {
   Download,
   Edit,      
   Trash2,    
-  X          
+  X,
+  ExternalLink // [추가] 외부 링크 아이콘
 } from 'lucide-react';
 
 // --- Firebase 라이브러리 ---
@@ -55,8 +56,7 @@ const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// --- [업데이트됨] 부서 목록 및 순서 변경 ---
-// 요청하신 5개 팀으로 한정하고 순서를 고정했습니다.
+// --- 부서 및 입력 항목 데이터 (5개 부서 고정) ---
 const DEPARTMENTS = [
   "재무팀", 
   "인사총무팀", 
@@ -118,7 +118,7 @@ function App() {
         ...doc.data()
       }));
       
-      // 정렬 로직: 날짜 내림차순 -> 부서 순서(DEPARTMENTS 배열 순서)
+      // 정렬: 날짜 내림차순 -> 부서 순서
       loadedMinutes.sort((a, b) => {
         if (a.date !== b.date) return b.date.localeCompare(a.date);
         return DEPARTMENTS.indexOf(a.department) - DEPARTMENTS.indexOf(b.department);
@@ -153,7 +153,6 @@ function App() {
       const { selectionStart, selectionEnd } = e.target;
       const value = inputData[field];
       
-      // 현재 커서 위치에 줄바꿈 + 서식 삽입
       const newValue = 
         value.substring(0, selectionStart) + 
         '\n     - ' + 
@@ -161,7 +160,6 @@ function App() {
 
       handleInputChange(field, newValue);
 
-      // 커서 위치 조정
       setTimeout(() => {
         if(e.target) {
           e.target.selectionStart = selectionStart + 8; 
@@ -510,7 +508,19 @@ function App() {
                     <option key={dept} value={dept}>{dept}</option>
                   ))}
                 </select>
+
+                {/* [추가] 엑셀 파일 링크 버튼 */}
+                <a
+                  href="https://composecoffee1.sharepoint.com/:x:/s/msteams_36b3c1/IQC40FIO6VJ-Qa9VM4V1p7ZjARvpGPXit21Lw8MYx4Ak7cI?e=boBlK9"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center px-3 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm transition-colors"
+                >
+                  <ExternalLink className="w-4 h-4 mr-2 text-green-600" />
+                  컴포즈커피 주간회의록
+                </a>
               </div>
+              
               <div className="flex items-center space-x-3 w-full md:w-auto justify-end">
                 <span className="text-sm text-gray-500 hidden lg:inline">
                   총 {Object.values(filteredGroups).flat().length}건
