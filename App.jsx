@@ -58,7 +58,7 @@ const db = getFirestore(app);
 
 // --- 부서 및 입력 항목 데이터 (5개 부서 고정) ---
 const DEPARTMENTS = [
-  "선택", // [수정] 기본값 '선택' 추가
+  "선택", 
   "재무팀", 
   "인사총무팀", 
   "해외사업팀", 
@@ -80,13 +80,13 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('list'); 
   
-  // 필터 상태
-  const [selectedDate, setSelectedDate] = useState('');
+  // 필터 상태 (기본값을 'recent'로 변경하여 최근 2주만 보이게 설정)
+  const [selectedDate, setSelectedDate] = useState('recent');
   const [selectedDept, setSelectedDept] = useState('전체');
 
   // 입력 상태
-  const [inputDate, setInputDate] = useState(''); // [수정] 기본값 공란 (선택 유도)
-  const [inputDept, setInputDept] = useState(DEPARTMENTS[0]); // 기본값 '선택'
+  const [inputDate, setInputDate] = useState(''); 
+  const [inputDept, setInputDept] = useState(DEPARTMENTS[0]); 
   const [inputData, setInputData] = useState({
     report: '',
     progress: '',
@@ -186,8 +186,8 @@ function App() {
   const handleCancelEdit = () => {
     setEditingId(null);
     setInputData({ report: '', progress: '', discussion: '' });
-    setInputDate(''); // [수정] 취소 시 날짜 초기화
-    setInputDept(DEPARTMENTS[0]); // [수정] 취소 시 부서 초기화 ('선택')
+    setInputDate(''); 
+    setInputDept(DEPARTMENTS[0]); 
     setView('list');
   };
 
@@ -206,16 +206,14 @@ function App() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // [추가] 저장 전 유효성 검사 (Validation)
     if (!inputDate) {
       alert("회의 일자를 선택해주세요.");
       return;
     }
 
-    // 날짜가 월요일인지 확인
     const [year, month, day] = inputDate.split('-').map(Number);
     const dateObj = new Date(year, month - 1, day);
-    if (dateObj.getDay() !== 1) { // 1 = 월요일
+    if (dateObj.getDay() !== 1) { 
       alert("회의 일자는 '월요일'만 선택 가능합니다.\n날짜를 다시 확인해주세요.");
       return;
     }
@@ -231,7 +229,6 @@ function App() {
     }
     setIsSubmitting(true);
 
-    // 자동 채움 헬퍼 함수
     const processInput = (text) => {
         const trimmed = text ? text.trim() : '';
         if (trimmed === '' || trimmed === '-') {
@@ -269,8 +266,8 @@ function App() {
       }
 
       setInputData({ report: '', progress: '', discussion: '' });
-      setInputDate(''); // [수정] 저장 후 초기화
-      setInputDept(DEPARTMENTS[0]); // [수정] 저장 후 초기화
+      setInputDate(''); 
+      setInputDept(DEPARTMENTS[0]); 
       setEditingId(null);
       setView('list');
     } catch (error) {
@@ -289,8 +286,19 @@ function App() {
     return acc;
   }, {});
 
+  // [수정됨] 존재하는 모든 날짜 목록 추출 (내림차순 정렬)
+  const allDates = Object.keys(groupedMinutes).sort((a, b) => b.localeCompare(a));
+
+  // [수정됨] 필터링 로직 개선: 'recent'일 경우 상위 2개 날짜만 노출
   const filteredGroups = Object.keys(groupedMinutes)
-    .filter(date => selectedDate ? date === selectedDate : true)
+    .filter(date => {
+      if (selectedDate === 'recent') {
+        // 전체 날짜 중 최신 2개에 포함되는지 확인
+        return allDates.slice(0, 2).includes(date);
+      }
+      // 전체 보기('')이거나 특정 날짜 선택 시
+      return selectedDate ? date === selectedDate : true;
+    })
     .sort((a, b) => b.localeCompare(a))
     .reduce((acc, date) => {
       const items = groupedMinutes[date].filter(item => 
@@ -300,7 +308,6 @@ function App() {
       return acc;
     }, {});
 
-  // 엑셀 다운로드 기능
   const handleExportCSV = () => {
     let dataToExport = [];
     Object.values(filteredGroups).forEach(group => {
@@ -354,7 +361,6 @@ function App() {
     document.body.removeChild(link);
   };
 
-  // 텍스트 내어쓰기(Hanging Indent) 렌더링 함수
   const renderFormattedText = (text) => {
     if (!text) return <span className="text-gray-400">내용 없음</span>;
     
@@ -417,8 +423,8 @@ function App() {
                   setView('write'); 
                   setEditingId(null); 
                   setInputData({ report: '', progress: '', discussion: '' });
-                  setInputDate(''); // 작성 모드 진입 시 날짜 초기화
-                  setInputDept(DEPARTMENTS[0]); // 작성 모드 진입 시 부서 초기화
+                  setInputDate(''); 
+                  setInputDept(DEPARTMENTS[0]); 
                 }}
                 className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   view === 'write' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
@@ -454,7 +460,6 @@ function App() {
               </h2>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
-              {/* 버튼 위치 변경: 상단으로 이동 */}
               <div className="flex justify-end space-x-3 mb-4">
                 <button
                   type="button"
@@ -543,13 +548,15 @@ function App() {
                   <Filter className="w-4 h-4 text-gray-500" />
                   <span className="text-sm font-medium text-gray-700">필터:</span>
                 </div>
+                {/* [수정됨] 날짜 필터에 '최근 2주' 및 '전체 날짜' 옵션 추가 */}
                 <select 
                   value={selectedDate} 
                   onChange={(e) => setSelectedDate(e.target.value)}
                   className="w-full sm:w-auto rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border p-1.5"
                 >
+                  <option value="recent">최근 2주 (기본)</option>
                   <option value="">전체 날짜</option>
-                  {Object.keys(groupedMinutes).sort((a,b) => b.localeCompare(a)).map(date => (
+                  {allDates.map(date => (
                     <option key={date} value={date}>{date}</option>
                   ))}
                 </select>
@@ -564,7 +571,6 @@ function App() {
                   ))}
                 </select>
 
-                {/* 엑셀 파일 링크 버튼 */}
                 <a
                   href="https://composecoffee1.sharepoint.com/:x:/s/msteams_36b3c1/IQC40FIO6VJ-Qa9VM4V1p7ZjARvpGPXit21Lw8MYx4Ak7cI?e=boBlK9"
                   target="_blank"
