@@ -58,6 +58,7 @@ const db = getFirestore(app);
 
 // --- 부서 및 입력 항목 데이터 (5개 부서 고정) ---
 const DEPARTMENTS = [
+  "선택", // [수정] 기본값 '선택' 추가
   "재무팀", 
   "인사총무팀", 
   "해외사업팀", 
@@ -84,8 +85,8 @@ function App() {
   const [selectedDept, setSelectedDept] = useState('전체');
 
   // 입력 상태
-  const [inputDate, setInputDate] = useState(new Date().toISOString().split('T')[0]);
-  const [inputDept, setInputDept] = useState(DEPARTMENTS[0]);
+  const [inputDate, setInputDate] = useState(''); // [수정] 기본값 공란 (선택 유도)
+  const [inputDept, setInputDept] = useState(DEPARTMENTS[0]); // 기본값 '선택'
   const [inputData, setInputData] = useState({
     report: '',
     progress: '',
@@ -185,6 +186,8 @@ function App() {
   const handleCancelEdit = () => {
     setEditingId(null);
     setInputData({ report: '', progress: '', discussion: '' });
+    setInputDate(''); // [수정] 취소 시 날짜 초기화
+    setInputDept(DEPARTMENTS[0]); // [수정] 취소 시 부서 초기화 ('선택')
     setView('list');
   };
 
@@ -202,6 +205,26 @@ function App() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // [추가] 저장 전 유효성 검사 (Validation)
+    if (!inputDate) {
+      alert("회의 일자를 선택해주세요.");
+      return;
+    }
+
+    // 날짜가 월요일인지 확인
+    const [year, month, day] = inputDate.split('-').map(Number);
+    const dateObj = new Date(year, month - 1, day);
+    if (dateObj.getDay() !== 1) { // 1 = 월요일
+      alert("회의 일자는 '월요일'만 선택 가능합니다.\n날짜를 다시 확인해주세요.");
+      return;
+    }
+
+    if (inputDept === "선택") {
+      alert("부서를 선택해주세요.");
+      return;
+    }
+
     if (!user) {
       alert("서버 연결 중입니다. 잠시 후 다시 시도해주세요.");
       return;
@@ -246,6 +269,8 @@ function App() {
       }
 
       setInputData({ report: '', progress: '', discussion: '' });
+      setInputDate(''); // [수정] 저장 후 초기화
+      setInputDept(DEPARTMENTS[0]); // [수정] 저장 후 초기화
       setEditingId(null);
       setView('list');
     } catch (error) {
@@ -329,7 +354,7 @@ function App() {
     document.body.removeChild(link);
   };
 
-  // [추가] 텍스트 내어쓰기(Hanging Indent) 렌더링 함수
+  // 텍스트 내어쓰기(Hanging Indent) 렌더링 함수
   const renderFormattedText = (text) => {
     if (!text) return <span className="text-gray-400">내용 없음</span>;
     
@@ -392,6 +417,8 @@ function App() {
                   setView('write'); 
                   setEditingId(null); 
                   setInputData({ report: '', progress: '', discussion: '' });
+                  setInputDate(''); // 작성 모드 진입 시 날짜 초기화
+                  setInputDept(DEPARTMENTS[0]); // 작성 모드 진입 시 부서 초기화
                 }}
                 className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   view === 'write' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
@@ -454,7 +481,9 @@ function App() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">회의 일자</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    회의 일자 <span className="text-red-500 text-xs">(월요일만 선택 가능)</span>
+                  </label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                     <input
@@ -467,7 +496,9 @@ function App() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">부서 선택</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    부서 선택 <span className="text-red-500">*</span>
+                  </label>
                   <div className="relative">
                     <Briefcase className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                     <select
@@ -528,7 +559,7 @@ function App() {
                   className="w-full sm:w-auto rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border p-1.5"
                 >
                   <option value="전체">전체 부서</option>
-                  {DEPARTMENTS.map(dept => (
+                  {DEPARTMENTS.filter(d => d !== "선택").map(dept => (
                     <option key={dept} value={dept}>{dept}</option>
                   ))}
                 </select>
