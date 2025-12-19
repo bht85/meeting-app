@@ -330,7 +330,6 @@ function App() {
   };
 
   // [추가] 텍스트 내어쓰기(Hanging Indent) 렌더링 함수
-  // 하이픈(-)으로 시작하는 줄은 하이픈 뒤의 텍스트 시작점에 맞춰 다음 줄을 정렬합니다.
   const renderFormattedText = (text) => {
     if (!text) return <span className="text-gray-400">내용 없음</span>;
     
@@ -339,7 +338,6 @@ function App() {
         {text.split('\n').map((line, index) => {
           const trimmed = line.trim();
           if (trimmed.startsWith('-')) {
-            // 하이픈이 있는 경우: Flexbox를 사용하여 하이픈과 내용을 분리해 정렬
             return (
               <div key={index} className="flex items-start">
                 <span className="mr-1.5 shrink-0 select-none">-</span>
@@ -348,7 +346,6 @@ function App() {
             );
           }
           if (!trimmed) return <div key={index} className="h-1"></div>;
-          // 하이픈이 없는 경우 (이어지는 내용 등): 약간의 들여쓰기 적용
           return <div key={index} className="pl-3 whitespace-pre-wrap break-words">{line}</div>;
         })}
       </div>
@@ -430,6 +427,31 @@ function App() {
               </h2>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
+              {/* 버튼 위치 변경: 상단으로 이동 */}
+              <div className="flex justify-end space-x-3 mb-4">
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 flex items-center"
+                >
+                  <X className="w-4 h-4 mr-1" />
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white flex items-center ${
+                    editingId 
+                      ? 'bg-indigo-600 hover:bg-indigo-700' 
+                      : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
+                >
+                  {isSubmitting ? '처리 중...' : (
+                    editingId ? <><Save className="w-4 h-4 mr-2" />수정 완료</> : <><Save className="w-4 h-4 mr-2" />저장하기</>
+                  )}
+                </button>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">회의 일자</label>
@@ -479,30 +501,6 @@ function App() {
                     />
                   </div>
                 ))}
-              </div>
-
-              <div className="pt-4 flex justify-end space-x-3 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={handleCancelEdit}
-                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 flex items-center"
-                >
-                  <X className="w-4 h-4 mr-1" />
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white flex items-center ${
-                    editingId 
-                      ? 'bg-indigo-600 hover:bg-indigo-700' 
-                      : 'bg-blue-600 hover:bg-blue-700'
-                  }`}
-                >
-                  {isSubmitting ? '처리 중...' : (
-                    editingId ? <><Save className="w-4 h-4 mr-2" />수정 완료</> : <><Save className="w-4 h-4 mr-2" />등록하기</>
-                  )}
-                </button>
               </div>
             </form>
           </div>
