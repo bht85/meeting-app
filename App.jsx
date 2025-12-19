@@ -16,7 +16,7 @@ import {
   Edit,      
   Trash2,    
   X,
-  ExternalLink // [추가] 외부 링크 아이콘
+  ExternalLink 
 } from 'lucide-react';
 
 // --- Firebase 라이브러리 ---
@@ -329,6 +329,32 @@ function App() {
     document.body.removeChild(link);
   };
 
+  // [추가] 텍스트 내어쓰기(Hanging Indent) 렌더링 함수
+  // 하이픈(-)으로 시작하는 줄은 하이픈 뒤의 텍스트 시작점에 맞춰 다음 줄을 정렬합니다.
+  const renderFormattedText = (text) => {
+    if (!text) return <span className="text-gray-400">내용 없음</span>;
+    
+    return (
+      <div className="flex flex-col space-y-1">
+        {text.split('\n').map((line, index) => {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('-')) {
+            // 하이픈이 있는 경우: Flexbox를 사용하여 하이픈과 내용을 분리해 정렬
+            return (
+              <div key={index} className="flex items-start">
+                <span className="mr-1.5 shrink-0 select-none">-</span>
+                <span className="whitespace-pre-wrap break-words">{trimmed.substring(1).trim()}</span>
+              </div>
+            );
+          }
+          if (!trimmed) return <div key={index} className="h-1"></div>;
+          // 하이픈이 없는 경우 (이어지는 내용 등): 약간의 들여쓰기 적용
+          return <div key={index} className="pl-3 whitespace-pre-wrap break-words">{line}</div>;
+        })}
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
@@ -509,7 +535,7 @@ function App() {
                   ))}
                 </select>
 
-                {/* [추가] 엑셀 파일 링크 버튼 */}
+                {/* 엑셀 파일 링크 버튼 */}
                 <a
                   href="https://composecoffee1.sharepoint.com/:x:/s/msteams_36b3c1/IQC40FIO6VJ-Qa9VM4V1p7ZjARvpGPXit21Lw8MYx4Ak7cI?e=boBlK9"
                   target="_blank"
@@ -585,25 +611,25 @@ function App() {
                                 <h4 className="text-xs font-bold text-blue-700 uppercase mb-1 flex items-center">
                                   <FileText className="w-3 h-3 mr-1" /> 보고사항
                                 </h4>
-                                <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
-                                  {minute.report || "내용 없음"}
-                                </p>
+                                <div className="text-sm text-gray-800 leading-relaxed">
+                                  {renderFormattedText(minute.report)}
+                                </div>
                               </div>
                               <div className="bg-green-50 p-3 rounded-lg">
                                 <h4 className="text-xs font-bold text-green-700 uppercase mb-1 flex items-center">
                                   <Clock className="w-3 h-3 mr-1" /> 진행업무
                                 </h4>
-                                <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
-                                  {minute.progress || "내용 없음"}
-                                </p>
+                                <div className="text-sm text-gray-800 leading-relaxed">
+                                  {renderFormattedText(minute.progress)}
+                                </div>
                               </div>
                               <div className="bg-orange-50 p-3 rounded-lg">
                                 <h4 className="text-xs font-bold text-orange-700 uppercase mb-1 flex items-center">
                                   <MessageSquare className="w-3 h-3 mr-1" /> 협의업무
                                 </h4>
-                                <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
-                                  {minute.discussion || "내용 없음"}
-                                </p>
+                                <div className="text-sm text-gray-800 leading-relaxed">
+                                  {renderFormattedText(minute.discussion)}
+                                </div>
                               </div>
                             </div>
                           </div>
