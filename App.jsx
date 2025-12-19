@@ -78,7 +78,9 @@ function App() {
   const [user, setUser] = useState(null);
   const [minutes, setMinutes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('list'); 
+  
+  // [수정됨] 화면 전환 상태(view) 대신 모달 열림 상태(isModalOpen) 사용
+  const [isModalOpen, setIsModalOpen] = useState(false);
   
   // 필터 상태 (기본값을 'recent'로 변경하여 최근 2주만 보이게 설정)
   const [selectedDate, setSelectedDate] = useState('recent');
@@ -140,14 +142,12 @@ function App() {
     setInputData(prev => ({ ...prev, [field]: value }));
   };
 
-  // 텍스트박스 클릭(포커스) 시 자동 서식 입력
   const handleFocus = (field) => {
     if (!inputData[field] || inputData[field].trim() === '') {
       handleInputChange(field, '     - ');
     }
   };
 
-  // 엔터 키 입력 시 자동 들여쓰기 적용
   const handleKeyDown = (e, field) => {
     if (e.key === 'Enter') {
       e.preventDefault(); 
@@ -170,6 +170,7 @@ function App() {
     }
   };
 
+  // [수정됨] 수정 버튼 클릭 시 모달 열기
   const handleEditClick = (minute) => {
     setInputDate(minute.date);
     setInputDept(minute.department);
@@ -179,16 +180,25 @@ function App() {
       discussion: minute.discussion
     });
     setEditingId(minute.id);
-    setView('write');
-    window.scrollTo(0, 0);
+    setIsModalOpen(true); // 모달 열기
   };
 
-  const handleCancelEdit = () => {
+  // [수정됨] 작성/수정 취소 시 모달 닫기
+  const handleCloseModal = () => {
     setEditingId(null);
     setInputData({ report: '', progress: '', discussion: '' });
     setInputDate(''); 
     setInputDept(DEPARTMENTS[0]); 
-    setView('list');
+    setIsModalOpen(false); // 모달 닫기
+  };
+
+  // [수정됨] 신규 작성 버튼 클릭 핸들러
+  const handleNewWriteClick = () => {
+    setEditingId(null);
+    setInputData({ report: '', progress: '', discussion: '' });
+    setInputDate('');
+    setInputDept(DEPARTMENTS[0]);
+    setIsModalOpen(true);
   };
 
   const handleDeleteClick = async (id) => {
@@ -265,11 +275,7 @@ function App() {
         alert('회의록이 등록되었습니다.');
       }
 
-      setInputData({ report: '', progress: '', discussion: '' });
-      setInputDate(''); 
-      setInputDept(DEPARTMENTS[0]); 
-      setEditingId(null);
-      setView('list');
+      handleCloseModal(); // 저장 후 모달 닫기 및 초기화
     } catch (error) {
       console.error("저장 오류: ", error);
       alert('저장 중 오류가 발생했습니다.');
@@ -286,17 +292,13 @@ function App() {
     return acc;
   }, {});
 
-  // [수정됨] 존재하는 모든 날짜 목록 추출 (내림차순 정렬)
   const allDates = Object.keys(groupedMinutes).sort((a, b) => b.localeCompare(a));
 
-  // [수정됨] 필터링 로직 개선: 'recent'일 경우 상위 2개 날짜만 노출
   const filteredGroups = Object.keys(groupedMinutes)
     .filter(date => {
       if (selectedDate === 'recent') {
-        // 전체 날짜 중 최신 2개에 포함되는지 확인
         return allDates.slice(0, 2).includes(date);
       }
-      // 전체 보기('')이거나 특정 날짜 선택 시
       return selectedDate ? date === selectedDate : true;
     })
     .sort((a, b) => b.localeCompare(a))
@@ -406,29 +408,10 @@ function App() {
               </span>
             </div>
             <div className="flex items-center space-x-2 sm:space-x-4">
+              {/* [수정됨] 조회 버튼 삭제 (항상 조회가 기본이므로) */}
               <button
-                onClick={() => { setView('list'); setEditingId(null); }}
-                className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  view === 'list' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                <div className="flex items-center">
-                  <Search className="w-4 h-4 mr-2" />
-                  <span className="hidden sm:inline">회의록 조회</span>
-                  <span className="sm:hidden">조회</span>
-                </div>
-              </button>
-              <button
-                onClick={() => { 
-                  setView('write'); 
-                  setEditingId(null); 
-                  setInputData({ report: '', progress: '', discussion: '' });
-                  setInputDate(''); 
-                  setInputDept(DEPARTMENTS[0]); 
-                }}
-                className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  view === 'write' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
-                }`}
+                onClick={handleNewWriteClick}
+                className="px-3 py-2 rounded-md text-sm font-medium transition-colors bg-blue-100 text-blue-700 hover:bg-blue-200"
               >
                 <div className="flex items-center">
                   <PlusCircle className="w-4 h-4 mr-2" />
@@ -442,241 +425,247 @@ function App() {
       </nav>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {view === 'write' ? (
-          <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden">
-            <div className={`px-6 py-4 ${editingId ? 'bg-indigo-600' : 'bg-blue-600'}`}>
-              <h2 className="text-xl font-bold text-white flex items-center">
-                {editingId ? (
-                  <>
-                    <Edit className="w-6 h-6 mr-2" />
-                    주간회의록 수정
-                  </>
-                ) : (
-                  <>
-                    <PlusCircle className="w-6 h-6 mr-2" />
-                    주간회의록 작성
-                  </>
-                )}
-              </h2>
-            </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-6">
-              <div className="flex justify-end space-x-3 mb-4">
-                <button
-                  type="button"
-                  onClick={handleCancelEdit}
-                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 flex items-center"
-                >
-                  <X className="w-4 h-4 mr-1" />
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white flex items-center ${
-                    editingId 
-                      ? 'bg-indigo-600 hover:bg-indigo-700' 
-                      : 'bg-blue-600 hover:bg-blue-700'
-                  }`}
-                >
-                  {isSubmitting ? '처리 중...' : (
-                    editingId ? <><Save className="w-4 h-4 mr-2" />수정 완료</> : <><Save className="w-4 h-4 mr-2" />저장하기</>
-                  )}
-                </button>
+        {/* 리스트 뷰 (항상 표시됨) */}
+        <div className="space-y-6">
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col md:flex-row gap-4 items-center justify-between">
+            <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full md:w-auto">
+              <div className="flex items-center space-x-2">
+                <Filter className="w-4 h-4 text-gray-500" />
+                <span className="text-sm font-medium text-gray-700">필터:</span>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    회의 일자 <span className="text-red-500 text-xs">(월요일만 선택 가능)</span>
-                  </label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                    <input
-                      type="date"
-                      required
-                      value={inputDate}
-                      onChange={(e) => setInputDate(e.target.value)}
-                      className="pl-10 w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    부서 선택 <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <Briefcase className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                    <select
-                      value={inputDept}
-                      onChange={(e) => setInputDept(e.target.value)}
-                      className="pl-10 w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2 bg-white"
-                    >
-                      {DEPARTMENTS.map(dept => (
-                        <option key={dept} value={dept}>{dept}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                {SECTIONS.map((section) => (
-                  <div key={section.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <label className="block text-sm font-bold text-gray-800 mb-2 flex items-center">
-                      <section.icon className="w-4 h-4 mr-2 text-blue-600" />
-                      {section.label}
-                    </label>
-                    <textarea
-                      value={inputData[section.id]}
-                      onChange={(e) => handleInputChange(section.id, e.target.value)}
-                      onFocus={() => handleFocus(section.id)} // 클릭 시 자동 서식
-                      onKeyDown={(e) => handleKeyDown(e, section.id)} // 엔터 시 자동 서식
-                      placeholder={section.placeholder}
-                      rows={5}
-                      className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-3 text-sm"
-                    />
-                  </div>
+              <select 
+                value={selectedDate} 
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="w-full sm:w-auto rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border p-1.5"
+              >
+                <option value="recent">최근 2주 (기본)</option>
+                <option value="">전체 날짜</option>
+                {allDates.map(date => (
+                  <option key={date} value={date}>{date}</option>
                 ))}
-              </div>
-            </form>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col md:flex-row gap-4 items-center justify-between">
-              <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full md:w-auto">
-                <div className="flex items-center space-x-2">
-                  <Filter className="w-4 h-4 text-gray-500" />
-                  <span className="text-sm font-medium text-gray-700">필터:</span>
-                </div>
-                {/* [수정됨] 날짜 필터에 '최근 2주' 및 '전체 날짜' 옵션 추가 */}
-                <select 
-                  value={selectedDate} 
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-full sm:w-auto rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border p-1.5"
-                >
-                  <option value="recent">최근 2주 (기본)</option>
-                  <option value="">전체 날짜</option>
-                  {allDates.map(date => (
-                    <option key={date} value={date}>{date}</option>
-                  ))}
-                </select>
-                <select 
-                  value={selectedDept} 
-                  onChange={(e) => setSelectedDept(e.target.value)}
-                  className="w-full sm:w-auto rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border p-1.5"
-                >
-                  <option value="전체">전체 부서</option>
-                  {DEPARTMENTS.filter(d => d !== "선택").map(dept => (
-                    <option key={dept} value={dept}>{dept}</option>
-                  ))}
-                </select>
+              </select>
+              <select 
+                value={selectedDept} 
+                onChange={(e) => setSelectedDept(e.target.value)}
+                className="w-full sm:w-auto rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border p-1.5"
+              >
+                <option value="전체">전체 부서</option>
+                {DEPARTMENTS.filter(d => d !== "선택").map(dept => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
 
-                <a
-                  href="https://composecoffee1.sharepoint.com/:x:/s/msteams_36b3c1/IQC40FIO6VJ-Qa9VM4V1p7ZjARvpGPXit21Lw8MYx4Ak7cI?e=boBlK9"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center px-3 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm transition-colors"
-                >
-                  <ExternalLink className="w-4 h-4 mr-2 text-green-600" />
-                  컴포즈커피 주간회의록
-                </a>
-              </div>
-              
-              <div className="flex items-center space-x-3 w-full md:w-auto justify-end">
-                <span className="text-sm text-gray-500 hidden lg:inline">
-                  총 {Object.values(filteredGroups).flat().length}건
-                </span>
-                <button
-                  onClick={handleExportCSV}
-                  className="flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-md shadow-sm transition-colors"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  엑셀(CSV) 다운로드
-                </button>
-              </div>
+              <a
+                href="https://composecoffee1.sharepoint.com/:x:/s/msteams_36b3c1/IQC40FIO6VJ-Qa9VM4V1p7ZjARvpGPXit21Lw8MYx4Ak7cI?e=boBlK9"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center px-3 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm transition-colors"
+              >
+                <ExternalLink className="w-4 h-4 mr-2 text-green-600" />
+                컴포즈커피 주간회의록
+              </a>
             </div>
+            
+            <div className="flex items-center space-x-3 w-full md:w-auto justify-end">
+              <span className="text-sm text-gray-500 hidden lg:inline">
+                총 {Object.values(filteredGroups).flat().length}건
+              </span>
+              <button
+                onClick={handleExportCSV}
+                className="flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-md shadow-sm transition-colors"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                엑셀(CSV) 다운로드
+              </button>
+            </div>
+          </div>
 
-            <div className="space-y-8">
-              {Object.keys(filteredGroups).length === 0 ? (
-                <div className="text-center py-12 bg-white rounded-lg border border-dashed border-gray-300">
-                  <FileText className="mx-auto h-12 w-12 text-gray-300" />
-                  <h3 className="mt-2 text-sm font-medium text-gray-900">등록된 회의록이 없습니다</h3>
-                  <p className="mt-1 text-sm text-gray-500">새로운 회의록을 작성해보세요.</p>
-                </div>
-              ) : (
-                Object.entries(filteredGroups).map(([date, dateMinutes]) => (
-                  <div key={date} className="space-y-4">
-                    <div className="flex items-center space-x-2">
-                      <div className="bg-blue-600 text-white text-sm font-bold px-3 py-1 rounded-full flex items-center">
-                        <Calendar className="w-3 h-3 mr-1" />
-                        {date}
-                      </div>
-                      <div className="h-px bg-gray-300 flex-1"></div>
+          <div className="space-y-8">
+            {Object.keys(filteredGroups).length === 0 ? (
+              <div className="text-center py-12 bg-white rounded-lg border border-dashed border-gray-300">
+                <FileText className="mx-auto h-12 w-12 text-gray-300" />
+                <h3 className="mt-2 text-sm font-medium text-gray-900">등록된 회의록이 없습니다</h3>
+                <p className="mt-1 text-sm text-gray-500">새로운 회의록을 작성해보세요.</p>
+              </div>
+            ) : (
+              Object.entries(filteredGroups).map(([date, dateMinutes]) => (
+                <div key={date} className="space-y-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="bg-blue-600 text-white text-sm font-bold px-3 py-1 rounded-full flex items-center">
+                      <Calendar className="w-3 h-3 mr-1" />
+                      {date}
                     </div>
+                    <div className="h-px bg-gray-300 flex-1"></div>
+                  </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {dateMinutes.map((minute) => (
-                        <div key={minute.id} className="bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow overflow-hidden flex flex-col relative group">
-                          <div className="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button 
-                              onClick={() => handleEditClick(minute)}
-                              className="p-2 bg-gray-100 hover:bg-indigo-100 text-gray-600 hover:text-indigo-600 rounded-full transition-colors"
-                              title="수정"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteClick(minute.id)}
-                              className="p-2 bg-gray-100 hover:bg-red-100 text-gray-600 hover:text-red-600 rounded-full transition-colors"
-                              title="삭제"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {dateMinutes.map((minute) => (
+                      <div key={minute.id} className="bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow overflow-hidden flex flex-col relative group">
+                        <div className="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button 
+                            onClick={() => handleEditClick(minute)}
+                            className="p-2 bg-gray-100 hover:bg-indigo-100 text-gray-600 hover:text-indigo-600 rounded-full transition-colors"
+                            title="수정"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteClick(minute.id)}
+                            className="p-2 bg-gray-100 hover:bg-red-100 text-gray-600 hover:text-red-600 rounded-full transition-colors"
+                            title="삭제"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        <div className="p-5 flex-1">
+                          <div className="flex justify-between items-start mb-4">
+                            <h3 className="text-lg font-bold text-gray-900 flex items-center">
+                              <Users className="w-5 h-5 mr-2 text-blue-500" />
+                              {minute.department}
+                            </h3>
                           </div>
-
-                          <div className="p-5 flex-1">
-                            <div className="flex justify-between items-start mb-4">
-                              <h3 className="text-lg font-bold text-gray-900 flex items-center">
-                                <Users className="w-5 h-5 mr-2 text-blue-500" />
-                                {minute.department}
-                              </h3>
-                            </div>
-                            <div className="space-y-4">
-                              <div className="bg-blue-50 p-3 rounded-lg">
-                                <h4 className="text-xs font-bold text-blue-700 uppercase mb-1 flex items-center">
-                                  <FileText className="w-3 h-3 mr-1" /> 보고사항
-                                </h4>
-                                <div className="text-sm text-gray-800 leading-relaxed">
-                                  {renderFormattedText(minute.report)}
-                                </div>
-                              </div>
-                              <div className="bg-green-50 p-3 rounded-lg">
-                                <h4 className="text-xs font-bold text-green-700 uppercase mb-1 flex items-center">
-                                  <Clock className="w-3 h-3 mr-1" /> 진행업무
-                                </h4>
-                                <div className="text-sm text-gray-800 leading-relaxed">
-                                  {renderFormattedText(minute.progress)}
-                                </div>
-                              </div>
-                              <div className="bg-orange-50 p-3 rounded-lg">
-                                <h4 className="text-xs font-bold text-orange-700 uppercase mb-1 flex items-center">
-                                  <MessageSquare className="w-3 h-3 mr-1" /> 협의업무
-                                </h4>
-                                <div className="text-sm text-gray-800 leading-relaxed">
-                                  {renderFormattedText(minute.discussion)}
-                                </div>
+                          <div className="space-y-4">
+                            <div className="bg-blue-50 p-3 rounded-lg">
+                              <h4 className="text-xs font-bold text-blue-700 uppercase mb-1 flex items-center">
+                                <FileText className="w-3 h-3 mr-1" /> 보고사항
+                              </h4>
+                              <div className="text-sm text-gray-800 leading-relaxed">
+                                {renderFormattedText(minute.report)}
                               </div>
                             </div>
-                          </div>
-                          <div className="bg-gray-50 px-5 py-3 border-t border-gray-100 flex justify-between items-center text-xs text-gray-500">
-                             <span>작성일: {new Date(minute.createdAt?.toDate()).toLocaleDateString()}</span>
+                            <div className="bg-green-50 p-3 rounded-lg">
+                              <h4 className="text-xs font-bold text-green-700 uppercase mb-1 flex items-center">
+                                <Clock className="w-3 h-3 mr-1" /> 진행업무
+                              </h4>
+                              <div className="text-sm text-gray-800 leading-relaxed">
+                                {renderFormattedText(minute.progress)}
+                              </div>
+                            </div>
+                            <div className="bg-orange-50 p-3 rounded-lg">
+                              <h4 className="text-xs font-bold text-orange-700 uppercase mb-1 flex items-center">
+                                <MessageSquare className="w-3 h-3 mr-1" /> 협의업무
+                              </h4>
+                              <div className="text-sm text-gray-800 leading-relaxed">
+                                {renderFormattedText(minute.discussion)}
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      ))}
+                        <div className="bg-gray-50 px-5 py-3 border-t border-gray-100 flex justify-between items-center text-xs text-gray-500">
+                            <span>작성일: {new Date(minute.createdAt?.toDate()).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* [추가됨] 작성/수정 모달 팝업 */}
+        {isModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto relative">
+              <div className={`px-6 py-4 sticky top-0 z-10 flex justify-between items-center ${editingId ? 'bg-indigo-600' : 'bg-blue-600'}`}>
+                <h2 className="text-xl font-bold text-white flex items-center">
+                  {editingId ? (
+                    <>
+                      <Edit className="w-6 h-6 mr-2" />
+                      주간회의록 수정
+                    </>
+                  ) : (
+                    <>
+                      <PlusCircle className="w-6 h-6 mr-2" />
+                      주간회의록 작성
+                    </>
+                  )}
+                </h2>
+                <button onClick={handleCloseModal} className="text-white hover:bg-white/20 p-1 rounded-full">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              
+              <form onSubmit={handleSubmit} className="p-6 space-y-6">
+                <div className="flex justify-end space-x-3 mb-4">
+                  <button
+                    type="button"
+                    onClick={handleCloseModal}
+                    className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 flex items-center"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white flex items-center ${
+                      editingId 
+                        ? 'bg-indigo-600 hover:bg-indigo-700' 
+                        : 'bg-blue-600 hover:bg-blue-700'
+                    }`}
+                  >
+                    {isSubmitting ? '처리 중...' : (
+                      editingId ? <><Save className="w-4 h-4 mr-2" />수정 완료</> : <><Save className="w-4 h-4 mr-2" />저장하기</>
+                    )}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      회의 일자 <span className="text-red-500 text-xs">(월요일만 선택 가능)</span>
+                    </label>
+                    <div className="relative">
+                      <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                      <input
+                        type="date"
+                        required
+                        value={inputDate}
+                        onChange={(e) => setInputDate(e.target.value)}
+                        className="pl-10 w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
+                      />
                     </div>
                   </div>
-                ))
-              )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      부서 선택 <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Briefcase className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                      <select
+                        value={inputDept}
+                        onChange={(e) => setInputDept(e.target.value)}
+                        className="pl-10 w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2 bg-white"
+                      >
+                        {DEPARTMENTS.map(dept => (
+                          <option key={dept} value={dept}>{dept}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  {SECTIONS.map((section) => (
+                    <div key={section.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                      <label className="block text-sm font-bold text-gray-800 mb-2 flex items-center">
+                        <section.icon className="w-4 h-4 mr-2 text-blue-600" />
+                        {section.label}
+                      </label>
+                      <textarea
+                        value={inputData[section.id]}
+                        onChange={(e) => handleInputChange(section.id, e.target.value)}
+                        onFocus={() => handleFocus(section.id)} // 클릭 시 자동 서식
+                        onKeyDown={(e) => handleKeyDown(e, section.id)} // 엔터 시 자동 서식
+                        placeholder={section.placeholder}
+                        rows={5}
+                        className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-3 text-sm"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </form>
             </div>
           </div>
         )}
