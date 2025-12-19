@@ -16,7 +16,8 @@ import {
   Edit,      
   Trash2,    
   X,
-  ExternalLink 
+  ExternalLink,
+  RotateCcw // [추가] 불러오기 아이콘
 } from 'lucide-react';
 
 // --- Firebase 라이브러리 ---
@@ -79,10 +80,10 @@ function App() {
   const [minutes, setMinutes] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  // [수정됨] 화면 전환 상태(view) 대신 모달 열림 상태(isModalOpen) 사용
+  // 모달 열림 상태
   const [isModalOpen, setIsModalOpen] = useState(false);
   
-  // 필터 상태 (기본값을 'recent'로 변경하여 최근 2주만 보이게 설정)
+  // 필터 상태
   const [selectedDate, setSelectedDate] = useState('recent');
   const [selectedDept, setSelectedDept] = useState('전체');
 
@@ -170,7 +171,35 @@ function App() {
     }
   };
 
-  // [수정됨] 수정 버튼 클릭 시 모달 열기
+  // [추가] 지난주 내용 불러오기 기능
+  const handleLoadLastWeek = () => {
+    if (inputDept === '선택') {
+      alert('지난주 내용을 불러오려면 먼저 [부서]를 선택해주세요.');
+      return;
+    }
+
+    // 현재 선택된 부서의 데이터 중, 현재 입력일(inputDate)보다 이전 날짜인 것들을 찾음
+    // 날짜를 선택하지 않았다면 그냥 해당 부서의 가장 최신 데이터를 찾음
+    const previousMinutes = minutes
+      .filter(m => m.department === inputDept)
+      .filter(m => !inputDate || m.date < inputDate)
+      .sort((a, b) => b.date.localeCompare(a.date)); // 최신순 정렬
+
+    const lastMinute = previousMinutes[0];
+
+    if (lastMinute) {
+      if (window.confirm(`${lastMinute.date}일자 회의록 내용을 불러오시겠습니까?\n현재 작성 중인 내용은 덮어씌워집니다.`)) {
+        setInputData({
+          report: lastMinute.report || '',
+          progress: lastMinute.progress || '',
+          discussion: lastMinute.discussion || ''
+        });
+      }
+    } else {
+      alert('이전 회의록 내역을 찾을 수 없습니다.');
+    }
+  };
+
   const handleEditClick = (minute) => {
     setInputDate(minute.date);
     setInputDept(minute.department);
@@ -180,19 +209,17 @@ function App() {
       discussion: minute.discussion
     });
     setEditingId(minute.id);
-    setIsModalOpen(true); // 모달 열기
+    setIsModalOpen(true);
   };
 
-  // [수정됨] 작성/수정 취소 시 모달 닫기
   const handleCloseModal = () => {
     setEditingId(null);
     setInputData({ report: '', progress: '', discussion: '' });
     setInputDate(''); 
     setInputDept(DEPARTMENTS[0]); 
-    setIsModalOpen(false); // 모달 닫기
+    setIsModalOpen(false);
   };
 
-  // [수정됨] 신규 작성 버튼 클릭 핸들러
   const handleNewWriteClick = () => {
     setEditingId(null);
     setInputData({ report: '', progress: '', discussion: '' });
@@ -275,7 +302,7 @@ function App() {
         alert('회의록이 등록되었습니다.');
       }
 
-      handleCloseModal(); // 저장 후 모달 닫기 및 초기화
+      handleCloseModal();
     } catch (error) {
       console.error("저장 오류: ", error);
       alert('저장 중 오류가 발생했습니다.');
@@ -284,7 +311,6 @@ function App() {
     }
   };
 
-  // 데이터 그룹화
   const groupedMinutes = minutes.reduce((acc, curr) => {
     const date = curr.date;
     if (!acc[date]) acc[date] = [];
@@ -408,7 +434,6 @@ function App() {
               </span>
             </div>
             <div className="flex items-center space-x-2 sm:space-x-4">
-              {/* [수정됨] 조회 버튼 삭제 (항상 조회가 기본이므로) */}
               <button
                 onClick={handleNewWriteClick}
                 className="px-3 py-2 rounded-md text-sm font-medium transition-colors bg-blue-100 text-blue-700 hover:bg-blue-200"
@@ -425,7 +450,6 @@ function App() {
       </nav>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* 리스트 뷰 (항상 표시됨) */}
         <div className="space-y-6">
           <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col md:flex-row gap-4 items-center justify-between">
             <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full md:w-auto">
@@ -564,7 +588,6 @@ function App() {
           </div>
         </div>
 
-        {/* [추가됨] 작성/수정 모달 팝업 */}
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto relative">
@@ -588,27 +611,40 @@ function App() {
               </div>
               
               <form onSubmit={handleSubmit} className="p-6 space-y-6">
-                <div className="flex justify-end space-x-3 mb-4">
+                <div className="flex justify-between space-x-3 mb-4">
+                  {/* [추가] 지난주 내용 불러오기 버튼 */}
                   <button
                     type="button"
-                    onClick={handleCloseModal}
-                    className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 flex items-center"
+                    onClick={handleLoadLastWeek}
+                    className="px-4 py-2 border border-blue-300 rounded-md shadow-sm text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 flex items-center"
                   >
-                    취소
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    지난주 불러오기
                   </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white flex items-center ${
-                      editingId 
-                        ? 'bg-indigo-600 hover:bg-indigo-700' 
-                        : 'bg-blue-600 hover:bg-blue-700'
-                    }`}
-                  >
-                    {isSubmitting ? '처리 중...' : (
-                      editingId ? <><Save className="w-4 h-4 mr-2" />수정 완료</> : <><Save className="w-4 h-4 mr-2" />저장하기</>
-                    )}
-                  </button>
+
+                  <div className="flex space-x-3">
+                    <button
+                      type="button"
+                      onClick={handleCloseModal}
+                      className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 flex items-center"
+                    >
+                      <X className="w-4 h-4 mr-1" />
+                      취소
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white flex items-center ${
+                        editingId 
+                          ? 'bg-indigo-600 hover:bg-indigo-700' 
+                          : 'bg-blue-600 hover:bg-blue-700'
+                      }`}
+                    >
+                      {isSubmitting ? '처리 중...' : (
+                        editingId ? <><Save className="w-4 h-4 mr-2" />수정 완료</> : <><Save className="w-4 h-4 mr-2" />저장하기</>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
