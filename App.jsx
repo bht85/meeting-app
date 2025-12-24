@@ -17,7 +17,8 @@ import {
   Trash2,    
   X,
   ExternalLink,
-  RotateCcw // [추가] 불러오기 아이콘
+  RotateCcw,
+  Archive // [추가] 과거 자료용 아이콘
 } from 'lucide-react';
 
 // --- Firebase 라이브러리 ---
@@ -171,19 +172,17 @@ function App() {
     }
   };
 
-  // [추가] 지난주 내용 불러오기 기능
+  // 지난주 내용 불러오기 기능
   const handleLoadLastWeek = () => {
     if (inputDept === '선택') {
       alert('지난주 내용을 불러오려면 먼저 [부서]를 선택해주세요.');
       return;
     }
 
-    // 현재 선택된 부서의 데이터 중, 현재 입력일(inputDate)보다 이전 날짜인 것들을 찾음
-    // 날짜를 선택하지 않았다면 그냥 해당 부서의 가장 최신 데이터를 찾음
     const previousMinutes = minutes
       .filter(m => m.department === inputDept)
       .filter(m => !inputDate || m.date < inputDate)
-      .sort((a, b) => b.date.localeCompare(a.date)); // 최신순 정렬
+      .sort((a, b) => b.date.localeCompare(a.date));
 
     const lastMinute = previousMinutes[0];
 
@@ -434,6 +433,17 @@ function App() {
               </span>
             </div>
             <div className="flex items-center space-x-2 sm:space-x-4">
+              {/* [추가] 상단 고정 링크 (경영지원본부) */}
+              <a
+                href="https://composecoffee1-my.sharepoint.com/:x:/g/personal/choihy_composecoffee_co_kr/IQBRHgvwRo3ZT5ytCTKVpBlRAcE4zXsMEqjohnr8xTI-RJ0?rtime=CQM385lC3kg"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden md:flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors bg-gray-100 text-gray-700 hover:bg-gray-200"
+              >
+                <Archive className="w-4 h-4 mr-2 text-gray-600" />
+                경영지원본부
+              </a>
+
               <button
                 onClick={handleNewWriteClick}
                 className="px-3 py-2 rounded-md text-sm font-medium transition-colors bg-blue-100 text-blue-700 hover:bg-blue-200"
@@ -612,7 +622,6 @@ function App() {
               
               <form onSubmit={handleSubmit} className="p-6 space-y-6">
                 <div className="flex justify-between space-x-3 mb-4">
-                  {/* [추가] 지난주 내용 불러오기 버튼 */}
                   <button
                     type="button"
                     onClick={handleLoadLastWeek}
