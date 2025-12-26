@@ -18,7 +18,7 @@ import {
   X,
   ExternalLink,
   RotateCcw,
-  Archive // [추가] 과거 자료용 아이콘
+  Archive 
 } from 'lucide-react';
 
 // --- Firebase 라이브러리 ---
@@ -58,10 +58,11 @@ const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// --- 부서 및 입력 항목 데이터 (5개 부서 고정) ---
+// --- [업데이트됨] 부서 목록 (재무기획팀 추가) ---
 const DEPARTMENTS = [
   "선택", 
   "재무팀", 
+  "재무기획팀", // [신규 추가] 재무팀 바로 뒤에 배치
   "인사총무팀", 
   "해외사업팀", 
   "구매물류팀", 
@@ -433,7 +434,6 @@ function App() {
               </span>
             </div>
             <div className="flex items-center space-x-2 sm:space-x-4">
-              {/* [추가] 상단 고정 링크 (경영지원본부) */}
               <a
                 href="https://composecoffee1-my.sharepoint.com/:x:/g/personal/choihy_composecoffee_co_kr/IQBRHgvwRo3ZT5ytCTKVpBlRAcE4zXsMEqjohnr8xTI-RJ0?rtime=CQM385lC3kg"
                 target="_blank"
