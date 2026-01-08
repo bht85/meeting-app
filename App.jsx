@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-// [중요] ReactDOM 관련 import 및 하단 render 코드 제거 (시스템 충돌 방지)
+// [중요] 이 파일은 '컴포넌트' 정의 파일입니다. 
+// Vercel 등 실제 배포 시에는 main.jsx 또는 index.js에서 이 App 컴포넌트를 import하여 
+// ReactDOM.createRoot(...).render(<App />) 해주는 진입점 코드가 반드시 필요합니다.
+
 import { 
   Calendar, 
   FileText, 
@@ -19,7 +22,8 @@ import {
   RotateCcw,
   Archive,
   Megaphone,
-  ArrowRight
+  ArrowRight,
+  Loader2
 } from 'lucide-react';
 
 // --- Firebase 라이브러리 ---
@@ -53,7 +57,16 @@ const firebaseConfig = {
 };
 
 // --- Firebase 초기화 ---
-const app = initializeApp(firebaseConfig);
+// 초기화 중복 방지를 위한 안전 장치
+let app;
+try {
+  app = initializeApp(firebaseConfig);
+} catch (error) {
+  // 이미 초기화된 경우 기존 앱 사용 (Hot Reloading 대응)
+  if (!/already exists/.test(error.message)) {
+    console.error('Firebase initialization error', error.stack);
+  }
+}
 const auth = getAuth(app);
 const db = getFirestore(app);
 
@@ -129,16 +142,20 @@ export default function App() {
 
   // 인증 및 데이터 불러오기
   useEffect(() => {
+    console.log("App Component Mounted"); // 디버깅용: 컴포넌트 마운트 확인
+
     const initAuth = async () => {
       try {
         await signInAnonymously(auth);
+        console.log("Firebase SignInAnonymously Success");
       } catch (error) {
-        console.error("인증 오류:", error);
+        console.error("인증 오류 (Firebase Domain 설정을 확인하세요):", error);
       }
     };
     initAuth();
 
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      console.log("Auth State Changed:", currentUser ? "Logged In" : "Logged Out");
       setUser(currentUser);
     });
 
@@ -159,6 +176,9 @@ export default function App() {
         return DEPARTMENTS.indexOf(a.department) - DEPARTMENTS.indexOf(b.department);
       });
       setMinutes(loadedMinutes);
+      console.log(`Loaded ${loadedMinutes.length} minutes`);
+    }, (error) => {
+      console.error("Error loading minutes:", error);
     });
 
     // 2. [요청사항 1] 경영지원본부 회의록 구독
@@ -172,6 +192,10 @@ export default function App() {
       loadedFeedbacks.sort((a, b) => b.date.localeCompare(a.date));
       setFeedbacks(loadedFeedbacks);
       setLoading(false);
+      console.log(`Loaded ${loadedFeedbacks.length} feedbacks`);
+    }, (error) => {
+      console.error("Error loading feedbacks:", error);
+      setLoading(false); // 에러 발생 시에도 로딩 해제
     });
 
     return () => {
@@ -529,8 +553,10 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex flex-col items-center justify-center h-screen bg-gray-50 text-gray-500">
+        <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
+        <p>시스템 데이터를 불러오는 중입니다...</p>
+        <p className="text-xs mt-2 text-gray-400">(Vercel에서 무응답 시 main.jsx 확인 필요)</p>
       </div>
     );
   }
