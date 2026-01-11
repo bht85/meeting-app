@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-// ReactDOM import 제거 (불필요한 중복 실행 방지)
+import ReactDOM from 'react-dom/client'; // [필수] 화면 렌더링을 위해 필요
 import { 
   Calendar, 
   FileText, 
@@ -653,10 +653,10 @@ function App() {
 }
 
 // --- 마운트 실행 ---
-// const rootElement = document.getElementById('root');
-// if (rootElement) {
-//   const root = ReactDOM.createRoot(rootElement);
-//   root.render(<App />);
-// }
+const rootElement = document.getElementById('root');
+if (rootElement && !rootElement.innerHTML) {
+  const root = ReactDOM.createRoot(rootElement);
+  root.render(<App />);
+}
 
 export default App;
