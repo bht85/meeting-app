@@ -24,7 +24,9 @@ import {
   serverTimestamp, 
   doc, 
   updateDoc, 
-  deleteDoc 
+  deleteDoc,
+  setDoc,
+  getDocs
 } from 'firebase/firestore';
 
 // --- [설정] 사용자분의 Firebase 키값 적용 ---
@@ -75,19 +77,21 @@ const FEEDBACK_TEAMS = [
   { id: 'it', label: 'IT지원팀' }
 ];
 
-// ==========================================
-// [KPI 대시보드 컴포넌트] (이전 코드 통합)
-// ==========================================
-const KPIDashboard = () => {
-  const [selectedDeptId, setSelectedDeptId] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isManageModalOpen, setIsManageModalOpen] = useState(false); // 부서 관리 모달
-  const [editingKpi, setEditingKpi] = useState(null);
+// --- 아이콘 매핑 헬퍼 ---
+const getIconComponent = (iconName) => {
+  switch (iconName) {
+    case 'dollar': return <DollarSign className="w-5 h-5" />;
+    case 'bag': return <ShoppingBag className="w-5 h-5" />;
+    case 'code': return <Code className="w-5 h-5" />;
+    case 'users': return <Users className="w-5 h-5" />;
+    default: return <Briefcase className="w-5 h-5" />;
+  }
+};
 
-  // KPI 초기 데이터 (로컬 상태)
-  const [departments, setDepartments] = useState([
+// --- 초기 데이터 (DB 비어있을 때 시딩용) ---
+const INITIAL_DEPARTMENTS = [
     {
-      id: 'sales', name: '영업본부', icon: <DollarSign className="w-5 h-5" />,
+      id: 'sales', name: '영업본부', icon: 'dollar',
       kpis: [
         { id: 's1', name: '월간 매출액', target: 50000, current: 42000, unit: '만원', weight: 0.5 },
         { id: 's2', name: '신규 계약 건수', target: 120, current: 95, unit: '건', weight: 0.3 },
@@ -95,7 +99,7 @@ const KPIDashboard = () => {
       ]
     },
     {
-      id: 'marketing', name: '마케팅팀', icon: <ShoppingBag className="w-5 h-5" />,
+      id: 'marketing', name: '마케팅팀', icon: 'bag',
       kpis: [
         { id: 'm1', name: '리드 생성 수', target: 1500, current: 1600, unit: '건', weight: 0.4 },
         { id: 'm2', name: 'CPC 단가', target: 500, current: 450, unit: '원', weight: 0.3, lowerIsBetter: true },
@@ -103,7 +107,7 @@ const KPIDashboard = () => {
       ]
     },
     {
-      id: 'dev', name: '개발팀', icon: <Code className="w-5 h-5" />,
+      id: 'dev', name: '개발팀', icon: 'code',
       kpis: [
         { id: 'd1', name: '스프린트 달성률', target: 100, current: 85, unit: '%', weight: 0.4 },
         { id: 'd2', name: '서버 가동률', target: 99.99, current: 99.95, unit: '%', weight: 0.4 },
@@ -111,60 +115,125 @@ const KPIDashboard = () => {
       ]
     },
     {
-      id: 'hr', name: '인사팀', icon: <Users className="w-5 h-5" />,
+      id: 'hr', name: '인사팀', icon: 'users',
       kpis: [
         { id: 'h1', name: '채용 완료율', target: 10, current: 8, unit: '명', weight: 0.5 },
         { id: 'h2', name: '직원 만족도', target: 90, current: 88, unit: '점', weight: 0.3 },
         { id: 'h3', name: '교육 이수율', target: 100, current: 70, unit: '%', weight: 0.2 },
       ]
     }
-  ]);
+];
 
-  // KPI 핸들러들...
-  const handleUpdateKPIValue = (deptId, kpiId, newValue) => {
-    setDepartments(prev => prev.map(d => d.id === deptId ? {
-      ...d, kpis: d.kpis.map(k => k.id === kpiId ? { ...k, current: Number(newValue) } : k)
-    } : d));
+// ==========================================
+// [KPI 대시보드 컴포넌트] (Firestore 연동)
+// ==========================================
+const KPIDashboard = () => {
+  const [selectedDeptId, setSelectedDeptId] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isManageModalOpen, setIsManageModalOpen] = useState(false);
+  const [editingKpi, setEditingKpi] = useState(null);
+  const [departments, setDepartments] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // 1. KPI 데이터 구독 (Firestore)
+  useEffect(() => {
+    const q = query(collection(db, 'kpi_departments'));
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      if (snapshot.empty) {
+        // 데이터가 없으면 초기 데이터 생성 (Seeding)
+        // 주의: React 18 Strict Mode에서 두 번 실행될 수 있으므로 체크
+        const checkSnap = await getDocs(collection(db, 'kpi_departments'));
+        if (checkSnap.empty) {
+             INITIAL_DEPARTMENTS.forEach(async (dept) => {
+                const { id, ...data } = dept;
+                await setDoc(doc(db, 'kpi_departments', id), data);
+             });
+        }
+      } else {
+        const loaded = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // 정렬 (이름순 혹은 id순, 여기선 생성된 순서 보장이 안되므로 이름순 정렬)
+        loaded.sort((a, b) => a.name.localeCompare(b.name));
+        setDepartments(loaded);
+      }
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // --- Firestore 업데이트 함수들 ---
+
+  // 실적 업데이트
+  const handleUpdateKPIValue = async (deptId, kpiId, newValue) => {
+    const dept = departments.find(d => d.id === deptId);
+    if (!dept) return;
+
+    const newKpis = dept.kpis.map(k => k.id === kpiId ? { ...k, current: Number(newValue) } : k);
+    await updateDoc(doc(db, 'kpi_departments', deptId), { kpis: newKpis });
   };
 
-  const handleDeleteKPI = (deptId, kpiId) => {
+  // KPI 삭제
+  const handleDeleteKPI = async (deptId, kpiId) => {
     if (!window.confirm('삭제하시겠습니까?')) return;
-    setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, kpis: d.kpis.filter(k => k.id !== kpiId) } : d));
+    const dept = departments.find(d => d.id === deptId);
+    if (!dept) return;
+
+    const newKpis = dept.kpis.filter(k => k.id !== kpiId);
+    await updateDoc(doc(db, 'kpi_departments', deptId), { kpis: newKpis });
   };
 
-  const handleSaveKPI = (deptId, kpiData) => {
-    setDepartments(prev => prev.map(d => d.id === deptId ? {
-      ...d, 
-      kpis: kpiData.id 
-        ? d.kpis.map(k => k.id === kpiData.id ? { ...kpiData, current: Number(kpiData.current), target: Number(kpiData.target), weight: Number(kpiData.weight) } : k)
-        : [...d.kpis, { ...kpiData, id: Date.now().toString(), current: Number(kpiData.current), target: Number(kpiData.target), weight: Number(kpiData.weight) }]
-    } : d));
+  // KPI 저장 (추가/수정)
+  const handleSaveKPI = async (deptId, kpiData) => {
+    const dept = departments.find(d => d.id === deptId);
+    if (!dept) return;
+
+    let newKpis = [...dept.kpis];
+    if (kpiData.id) {
+      // 수정
+      newKpis = newKpis.map(k => k.id === kpiData.id ? { 
+          ...kpiData, 
+          current: Number(kpiData.current), 
+          target: Number(kpiData.target), 
+          weight: Number(kpiData.weight) 
+      } : k);
+    } else {
+      // 추가
+      newKpis.push({ 
+        ...kpiData, 
+        id: Date.now().toString(), 
+        current: Number(kpiData.current), 
+        target: Number(kpiData.target), 
+        weight: Number(kpiData.weight) 
+      });
+    }
+    await updateDoc(doc(db, 'kpi_departments', deptId), { kpis: newKpis });
     setIsModalOpen(false);
   };
 
-  // 부서 관리 핸들러
-  const handleAddDept = (name) => {
+  // 부서 추가
+  const handleAddDept = async (name) => {
     if (!name.trim()) return;
-    const newDept = {
-      id: Date.now().toString(),
+    await addDoc(collection(db, 'kpi_departments'), {
       name: name,
-      icon: <Briefcase className="w-5 h-5" />, // 새 부서 기본 아이콘
+      icon: 'briefcase', // 기본 아이콘
       kpis: []
-    };
-    setDepartments([...departments, newDept]);
+    });
   };
 
-  const handleRemoveDept = (id) => {
+  // 부서 삭제
+  const handleRemoveDept = async (id) => {
     if (window.confirm('해당 부서와 포함된 모든 KPI 데이터가 영구 삭제됩니다.\n계속하시겠습니까?')) {
-      setDepartments(departments.filter(d => d.id !== id));
+      await deleteDoc(doc(db, 'kpi_departments', id));
+      if (selectedDeptId === id) setSelectedDeptId(null);
     }
   };
 
-  const handleRenameDept = (id, newName) => {
+  // 부서명 수정
+  const handleRenameDept = async (id, newName) => {
     if (!newName.trim()) return;
-    setDepartments(departments.map(d => d.id === id ? { ...d, name: newName } : d));
+    await updateDoc(doc(db, 'kpi_departments', id), { name: newName });
   };
 
+  // --- 계산 로직 (기존 동일) ---
   const calculateAchievement = (target, current, lowerIsBetter = false) => {
     if (lowerIsBetter) {
       if (current <= target) return 100;
@@ -198,6 +267,8 @@ const KPIDashboard = () => {
 
   const selectedDeptData = departments.find(d => d.id === selectedDeptId);
 
+  if (loading) return <div className="p-10 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-600"/></div>;
+
   return (
     <div className="bg-gray-50 min-h-screen p-4 rounded-xl">
       <div className="mb-6 flex justify-between items-end">
@@ -212,7 +283,7 @@ const KPIDashboard = () => {
                 <Settings className="w-4 h-4" />
             </button>
           </h2>
-          <p className="text-sm text-slate-500">부서별 핵심 성과 지표 모니터링</p>
+          <p className="text-sm text-slate-500">부서별 핵심 성과 지표 모니터링 (자동저장)</p>
         </div>
       </div>
 
@@ -226,11 +297,11 @@ const KPIDashboard = () => {
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex items-center gap-3">
                     <div className={`p-2.5 rounded-lg bg-indigo-50 text-indigo-600`}>
-                      {dept.icon}
+                      {getIconComponent(dept.icon)}
                     </div>
                     <div>
                       <h2 className="text-lg font-bold text-slate-800 group-hover:text-indigo-600">{dept.name}</h2>
-                      <p className="text-xs text-slate-500">{dept.kpis.length}개 지표</p>
+                      <p className="text-xs text-slate-500">{dept.kpis?.length || 0}개 지표</p>
                     </div>
                   </div>
                   <div className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(score)}`}>
@@ -249,7 +320,6 @@ const KPIDashboard = () => {
             );
           })}
           
-          {/* Add New Department Card Placeholder */}
           <button 
             onClick={() => setIsManageModalOpen(true)}
             className="border-2 border-dashed border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center text-slate-400 hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50 transition-all min-h-[160px]"
@@ -259,6 +329,7 @@ const KPIDashboard = () => {
           </button>
         </div>
       ) : (
+        selectedDeptData && (
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden min-h-[500px]">
            <div className="bg-slate-50 border-b border-slate-200 p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -266,7 +337,7 @@ const KPIDashboard = () => {
                   <ArrowLeft className="w-5 h-5 text-slate-600" />
                 </button>
                 <div className="flex items-center gap-2">
-                  <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded border border-indigo-100">{selectedDeptData.icon}</div>
+                  <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded border border-indigo-100">{getIconComponent(selectedDeptData.icon)}</div>
                   <h2 className="text-lg font-bold text-slate-900">{selectedDeptData.name}</h2>
                 </div>
               </div>
@@ -281,12 +352,12 @@ const KPIDashboard = () => {
            </div>
            
            <div className="divide-y divide-slate-100">
-             {selectedDeptData.kpis.length === 0 && (
+             {selectedDeptData.kpis?.length === 0 && (
                 <div className="p-8 text-center text-slate-400">
                     등록된 KPI가 없습니다. 우측 상단의 추가 버튼을 눌러보세요.
                 </div>
              )}
-             {selectedDeptData.kpis.map((kpi) => {
+             {selectedDeptData.kpis?.map((kpi) => {
                 const achievement = calculateAchievement(kpi.target, kpi.current, kpi.lowerIsBetter);
                 return (
                   <div key={kpi.id} className="p-4 hover:bg-slate-50 transition-colors">
@@ -330,6 +401,7 @@ const KPIDashboard = () => {
              })}
            </div>
         </div>
+        )
       )}
 
       {/* KPI Modal */}
@@ -345,13 +417,14 @@ const KPIDashboard = () => {
             onAdd={handleAddDept}
             onRemove={handleRemoveDept}
             onRename={handleRenameDept}
+            getIcon={getIconComponent}
         />
       )}
     </div>
   );
 };
 
-const TeamManagerModal = ({ departments, onClose, onAdd, onRemove, onRename }) => {
+const TeamManagerModal = ({ departments, onClose, onAdd, onRemove, onRename, getIcon }) => {
     const [newDeptName, setNewDeptName] = useState('');
     const [editingId, setEditingId] = useState(null);
     const [editName, setEditName] = useState('');
@@ -414,9 +487,9 @@ const TeamManagerModal = ({ departments, onClose, onAdd, onRemove, onRename }) =
                                 </div>
                             ) : (
                                 <div className="flex items-center gap-3">
-                                    <div className="text-slate-500">{dept.icon}</div>
+                                    <div className="text-slate-500">{getIcon(dept.icon)}</div>
                                     <span className="font-medium text-slate-700">{dept.name}</span>
-                                    <span className="text-xs text-slate-400">({dept.kpis.length}개 KPI)</span>
+                                    <span className="text-xs text-slate-400">({dept.kpis?.length || 0}개 KPI)</span>
                                 </div>
                             )}
                             
