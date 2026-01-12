@@ -81,6 +81,7 @@ const FEEDBACK_TEAMS = [
 const KPIDashboard = () => {
   const [selectedDeptId, setSelectedDeptId] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isManageModalOpen, setIsManageModalOpen] = useState(false); // 부서 관리 모달
   const [editingKpi, setEditingKpi] = useState(null);
 
   // KPI 초기 데이터 (로컬 상태)
@@ -141,6 +142,29 @@ const KPIDashboard = () => {
     setIsModalOpen(false);
   };
 
+  // 부서 관리 핸들러
+  const handleAddDept = (name) => {
+    if (!name.trim()) return;
+    const newDept = {
+      id: Date.now().toString(),
+      name: name,
+      icon: <Briefcase className="w-5 h-5" />, // 새 부서 기본 아이콘
+      kpis: []
+    };
+    setDepartments([...departments, newDept]);
+  };
+
+  const handleRemoveDept = (id) => {
+    if (window.confirm('해당 부서와 포함된 모든 KPI 데이터가 영구 삭제됩니다.\n계속하시겠습니까?')) {
+      setDepartments(departments.filter(d => d.id !== id));
+    }
+  };
+
+  const handleRenameDept = (id, newName) => {
+    if (!newName.trim()) return;
+    setDepartments(departments.map(d => d.id === id ? { ...d, name: newName } : d));
+  };
+
   const calculateAchievement = (target, current, lowerIsBetter = false) => {
     if (lowerIsBetter) {
       if (current <= target) return 100;
@@ -180,13 +204,20 @@ const KPIDashboard = () => {
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <BarChart3 className="w-6 h-6 text-indigo-600" /> KPI 현황판
+            <button 
+                onClick={() => setIsManageModalOpen(true)}
+                className="p-1.5 ml-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-full transition-colors"
+                title="부서 관리"
+            >
+                <Settings className="w-4 h-4" />
+            </button>
           </h2>
           <p className="text-sm text-slate-500">부서별 핵심 성과 지표 모니터링</p>
         </div>
       </div>
 
       {selectedDeptId === null ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {departments.map((dept) => {
             const score = getDeptScore(dept.kpis);
             return (
@@ -194,7 +225,7 @@ const KPIDashboard = () => {
                 className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 cursor-pointer hover:shadow-md transition-all group">
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex items-center gap-3">
-                    <div className={`p-2.5 rounded-lg ${dept.id === 'sales' ? 'bg-blue-100 text-blue-600' : dept.id === 'marketing' ? 'bg-pink-100 text-pink-600' : dept.id === 'dev' ? 'bg-purple-100 text-purple-600' : 'bg-orange-100 text-orange-600'}`}>
+                    <div className={`p-2.5 rounded-lg bg-indigo-50 text-indigo-600`}>
                       {dept.icon}
                     </div>
                     <div>
@@ -217,6 +248,15 @@ const KPIDashboard = () => {
               </div>
             );
           })}
+          
+          {/* Add New Department Card Placeholder */}
+          <button 
+            onClick={() => setIsManageModalOpen(true)}
+            className="border-2 border-dashed border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center text-slate-400 hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50 transition-all min-h-[160px]"
+          >
+            <Plus className="w-8 h-8 mb-2 opacity-50" />
+            <span className="text-sm font-medium">새 부서 추가</span>
+          </button>
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden min-h-[500px]">
@@ -241,6 +281,11 @@ const KPIDashboard = () => {
            </div>
            
            <div className="divide-y divide-slate-100">
+             {selectedDeptData.kpis.length === 0 && (
+                <div className="p-8 text-center text-slate-400">
+                    등록된 KPI가 없습니다. 우측 상단의 추가 버튼을 눌러보세요.
+                </div>
+             )}
              {selectedDeptData.kpis.map((kpi) => {
                 const achievement = calculateAchievement(kpi.target, kpi.current, kpi.lowerIsBetter);
                 return (
@@ -291,8 +336,109 @@ const KPIDashboard = () => {
       {isModalOpen && (
         <KPIFormModal kpi={editingKpi} onClose={() => setIsModalOpen(false)} onSave={(data) => handleSaveKPI(selectedDeptId, data)} />
       )}
+
+      {/* Department Manager Modal */}
+      {isManageModalOpen && (
+        <TeamManagerModal 
+            departments={departments} 
+            onClose={() => setIsManageModalOpen(false)} 
+            onAdd={handleAddDept}
+            onRemove={handleRemoveDept}
+            onRename={handleRenameDept}
+        />
+      )}
     </div>
   );
+};
+
+const TeamManagerModal = ({ departments, onClose, onAdd, onRemove, onRename }) => {
+    const [newDeptName, setNewDeptName] = useState('');
+    const [editingId, setEditingId] = useState(null);
+    const [editName, setEditName] = useState('');
+
+    const handleAddSubmit = (e) => {
+        e.preventDefault();
+        onAdd(newDeptName);
+        setNewDeptName('');
+    };
+
+    const startEdit = (dept) => {
+        setEditingId(dept.id);
+        setEditName(dept.name);
+    };
+
+    const saveEdit = (id) => {
+        onRename(id, editName);
+        setEditingId(null);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[70] backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 max-h-[80vh] overflow-y-auto flex flex-col">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                        <Settings className="w-5 h-5 text-indigo-600"/> 부서 관리
+                    </h3>
+                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+                </div>
+                
+                {/* Add New */}
+                <form onSubmit={handleAddSubmit} className="flex gap-2 mb-6">
+                    <input 
+                        type="text" 
+                        value={newDeptName}
+                        onChange={(e) => setNewDeptName(e.target.value)}
+                        placeholder="새로운 부서명 입력"
+                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                    <button type="submit" disabled={!newDeptName.trim()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+                        추가
+                    </button>
+                </form>
+
+                {/* List */}
+                <div className="space-y-3 flex-1 overflow-y-auto">
+                    {departments.map(dept => (
+                        <div key={dept.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100 group">
+                            {editingId === dept.id ? (
+                                <div className="flex items-center gap-2 flex-1 mr-2">
+                                    <input 
+                                        type="text" 
+                                        value={editName}
+                                        onChange={(e) => setEditName(e.target.value)}
+                                        className="flex-1 border border-indigo-300 rounded px-2 py-1 text-sm outline-none"
+                                        autoFocus
+                                    />
+                                    <button onClick={() => saveEdit(dept.id)} className="text-green-600 hover:bg-green-100 p-1 rounded"><CheckCircle2 className="w-4 h-4"/></button>
+                                    <button onClick={() => setEditingId(null)} className="text-slate-400 hover:bg-slate-200 p-1 rounded"><X className="w-4 h-4"/></button>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-3">
+                                    <div className="text-slate-500">{dept.icon}</div>
+                                    <span className="font-medium text-slate-700">{dept.name}</span>
+                                    <span className="text-xs text-slate-400">({dept.kpis.length}개 KPI)</span>
+                                </div>
+                            )}
+                            
+                            {editingId !== dept.id && (
+                                <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                                    <button onClick={() => startEdit(dept)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="이름 변경">
+                                        <Edit2 className="w-4 h-4"/>
+                                    </button>
+                                    <button onClick={() => onRemove(dept.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" title="삭제">
+                                        <Trash2 className="w-4 h-4"/>
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                    {departments.length === 0 && (
+                        <p className="text-center text-sm text-slate-400 py-4">등록된 부서가 없습니다.</p>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
 };
 
 const KPIFormModal = ({ kpi, onClose, onSave }) => {
