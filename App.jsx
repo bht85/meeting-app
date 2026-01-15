@@ -140,8 +140,6 @@ const KPIDashboard = () => {
     const q = query(collection(db, 'kpi_departments'));
     const unsubscribe = onSnapshot(q, async (snapshot) => {
       if (snapshot.empty) {
-        // 데이터가 없으면 초기 데이터 생성 (Seeding)
-        // 주의: React 18 Strict Mode에서 두 번 실행될 수 있으므로 체크
         const checkSnap = await getDocs(collection(db, 'kpi_departments'));
         if (checkSnap.empty) {
              INITIAL_DEPARTMENTS.forEach(async (dept) => {
@@ -151,7 +149,6 @@ const KPIDashboard = () => {
         }
       } else {
         const loaded = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        // 정렬 (이름순 혹은 id순, 여기선 생성된 순서 보장이 안되므로 이름순 정렬)
         loaded.sort((a, b) => a.name.localeCompare(b.name));
         setDepartments(loaded);
       }
@@ -161,34 +158,26 @@ const KPIDashboard = () => {
   }, []);
 
   // --- Firestore 업데이트 함수들 ---
-
-  // 실적 업데이트
   const handleUpdateKPIValue = async (deptId, kpiId, newValue) => {
     const dept = departments.find(d => d.id === deptId);
     if (!dept) return;
-
     const newKpis = dept.kpis.map(k => k.id === kpiId ? { ...k, current: Number(newValue) } : k);
     await updateDoc(doc(db, 'kpi_departments', deptId), { kpis: newKpis });
   };
 
-  // KPI 삭제
   const handleDeleteKPI = async (deptId, kpiId) => {
     if (!window.confirm('삭제하시겠습니까?')) return;
     const dept = departments.find(d => d.id === deptId);
     if (!dept) return;
-
     const newKpis = dept.kpis.filter(k => k.id !== kpiId);
     await updateDoc(doc(db, 'kpi_departments', deptId), { kpis: newKpis });
   };
 
-  // KPI 저장 (추가/수정)
   const handleSaveKPI = async (deptId, kpiData) => {
     const dept = departments.find(d => d.id === deptId);
     if (!dept) return;
-
     let newKpis = [...dept.kpis];
     if (kpiData.id) {
-      // 수정
       newKpis = newKpis.map(k => k.id === kpiData.id ? { 
           ...kpiData, 
           current: Number(kpiData.current), 
@@ -196,7 +185,6 @@ const KPIDashboard = () => {
           weight: Number(kpiData.weight) 
       } : k);
     } else {
-      // 추가
       newKpis.push({ 
         ...kpiData, 
         id: Date.now().toString(), 
@@ -209,17 +197,15 @@ const KPIDashboard = () => {
     setIsModalOpen(false);
   };
 
-  // 부서 추가
   const handleAddDept = async (name) => {
     if (!name.trim()) return;
     await addDoc(collection(db, 'kpi_departments'), {
       name: name,
-      icon: 'briefcase', // 기본 아이콘
+      icon: 'briefcase', 
       kpis: []
     });
   };
 
-  // 부서 삭제
   const handleRemoveDept = async (id) => {
     if (window.confirm('해당 부서와 포함된 모든 KPI 데이터가 영구 삭제됩니다.\n계속하시겠습니까?')) {
       await deleteDoc(doc(db, 'kpi_departments', id));
@@ -227,13 +213,12 @@ const KPIDashboard = () => {
     }
   };
 
-  // 부서명 수정
   const handleRenameDept = async (id, newName) => {
     if (!newName.trim()) return;
     await updateDoc(doc(db, 'kpi_departments', id), { name: newName });
   };
 
-  // --- 계산 로직 (기존 동일) ---
+  // --- 계산 로직 ---
   const calculateAchievement = (target, current, lowerIsBetter = false) => {
     if (lowerIsBetter) {
       if (current <= target) return 100;
@@ -663,6 +648,29 @@ function App() {
     }
   };
 
+  // --- 지난주 불러오기 기능 (복구됨) ---
+  const handleLoadLastWeek = () => {
+    if (inputDept === '선택') { alert('부서를 먼저 선택해주세요.'); return; }
+    
+    // 현재 입력 날짜보다 이전 데이터 중 해당 부서의 가장 최신 데이터 검색
+    const prev = minutes
+      .filter(m => m.department === inputDept && (!inputDate || m.date < inputDate))
+      .sort((a, b) => b.date.localeCompare(a.date));
+      
+    if (prev.length > 0) {
+      const lastDoc = prev[0];
+      if(window.confirm(`${lastDoc.date}일자 (${lastDoc.department}) 내용을 불러오시겠습니까?\n현재 작성 중인 내용은 덮어씌워집니다.`)) {
+        setInputData({ 
+          report: lastDoc.report || '', 
+          progress: lastDoc.progress || '', 
+          discussion: lastDoc.discussion || '' 
+        });
+      }
+    } else { 
+      alert('이전 회의록 내역이 없습니다.'); 
+    }
+  };
+
   // --- 부서 회의록 핸들러 ---
   const handleMinuteSubmit = async (e) => {
     e.preventDefault();
@@ -1064,6 +1072,18 @@ function App() {
                             </select>
                         </div>
                     </div>
+
+                    {/* [ADDED] 지난주 불러오기 버튼 */}
+                    <div className="flex justify-end">
+                        <button 
+                            type="button" 
+                            onClick={handleLoadLastWeek}
+                            className="flex items-center text-sm text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-md transition-colors"
+                        >
+                            <RotateCcw className="w-4 h-4 mr-1.5"/> 지난주 내용 불러오기
+                        </button>
+                    </div>
+
                     <div className="space-y-4">
                         {SECTIONS.map(s => (
                             <div key={s.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
