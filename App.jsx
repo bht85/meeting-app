@@ -5,7 +5,7 @@ import {
   MessageSquare, Layout, Filter, Download, Trash2, X, ExternalLink, 
   RotateCcw, Archive, Megaphone, Menu, CheckCircle2, Loader2,
   BarChart3, Code, ShoppingBag, AlertCircle, ArrowLeft, Target, 
-  DollarSign, Plus, Edit2, Settings, Edit, Building2, Lock
+  DollarSign, Plus, Edit2, Settings, Edit, Building2, Lock, Scale
 } from 'lucide-react';
 
 // --- Firebase 라이브러리 ---
@@ -59,15 +59,18 @@ const DEPARTMENTS = [
   "재무기획팀",
   "인사총무팀", 
   "해외사업팀", 
+  "법무팀", 
   "구매물류팀", 
   "IT지원팀"
 ];
 
+// 정렬 순서 정의
 const TEAM_ORDER = [
   "재무팀", 
   "재무기획팀", 
   "인사총무팀", 
   "해외사업팀", 
+  "법무팀",
   "구매물류팀", 
   "IT지원팀"
 ];
@@ -78,10 +81,13 @@ const SECTIONS = [
   { id: 'discussion', label: '다. 협의업무', icon: MessageSquare, placeholder: '내용이 없으면 자동으로 \'특이사항 없음\'으로 저장됩니다.' }
 ];
 
+// 경영본부 회의 의견 작성용 팀 리스트 (순서 반영)
 const FEEDBACK_TEAMS = [
   { id: 'finance', label: '재무팀' },
+  { id: 'finance_plan', label: '재무기획팀' },
   { id: 'hr', label: '인사총무팀' },
   { id: 'global', label: '해외사업팀' },
+  { id: 'legal', label: '법무팀' },
   { id: 'logistics', label: '구매물류팀' },
   { id: 'it', label: 'IT지원팀' }
 ];
@@ -93,9 +99,10 @@ const getIconComponent = (iconName) => {
     case 'bag': return <ShoppingBag className="w-5 h-5" />;
     case 'code': return <Code className="w-5 h-5" />;
     case 'users': return <Users className="w-5 h-5" />;
-    case 'global': return <RotateCcw className="w-5 h-5" />; // 해외사업팀 임시 아이콘
-    case 'truck': return <Archive className="w-5 h-5" />; // 물류 아이콘 대용
-    case 'monitor': return <Layout className="w-5 h-5" />; // IT 아이콘 대용
+    case 'global': return <RotateCcw className="w-5 h-5" />; 
+    case 'truck': return <Archive className="w-5 h-5" />; 
+    case 'monitor': return <Layout className="w-5 h-5" />; 
+    case 'legal': return <Scale className="w-5 h-5" />; // 법무팀 아이콘
     default: return <Briefcase className="w-5 h-5" />;
   }
 };
@@ -106,6 +113,7 @@ const INITIAL_DEPARTMENTS = [
     { id: 'finance_plan', name: '재무기획팀', icon: 'dollar', kpis: [] },
     { id: 'hr_ga', name: '인사총무팀', icon: 'users', kpis: [] },
     { id: 'global_biz', name: '해외사업팀', icon: 'global', kpis: [] },
+    { id: 'legal_team', name: '법무팀', icon: 'legal', kpis: [] },
     { id: 'logistics', name: '구매물류팀', icon: 'truck', kpis: [] },
     { id: 'it_support', name: 'IT지원팀', icon: 'monitor', kpis: [] }
 ];
@@ -286,7 +294,6 @@ const KPIDashboard = () => {
     });
     
     // 가중치 합이 0이면 0 리턴, 아니면 가중치 총합으로 나눔 (가중치 기반 평균)
-    // *주의: 보통 가중치 합은 1.0(100%)이어야 하지만, 여기선 유연하게 입력된 가중치 총합으로 나눔
     return totalWeight === 0 ? 0 : Math.round(totalScore / totalWeight);
   };
 
@@ -331,7 +338,7 @@ const KPIDashboard = () => {
       </div>
 
       {selectedDeptId === null ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {departments.map((dept) => {
             const score = getDeptScore(dept.kpis);
             return (
@@ -779,7 +786,10 @@ function App() {
   const [inputDept, setInputDept] = useState(DEPARTMENTS[0]); 
   const [inputData, setInputData] = useState({ report: '', progress: '', discussion: '' });
   const [feedbackInputDate, setFeedbackInputDate] = useState('');
-  const [feedbackInputData, setFeedbackInputData] = useState({ finance: '', hr: '', global: '', logistics: '', it: '' });
+  // [수정] 7개 팀(법무팀, 재무기획팀 포함) 초기값 설정
+  const [feedbackInputData, setFeedbackInputData] = useState({ 
+      finance: '', finance_plan: '', hr: '', global: '', legal: '', logistics: '', it: '' 
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editingFeedbackId, setEditingFeedbackId] = useState(null);
@@ -918,11 +928,14 @@ function App() {
     if (!user) { alert("서버 연결 중입니다."); return; }
 
     setIsSubmitting(true);
+    // [수정] 7개 팀 필드 모두 저장
     const payload = {
       date: feedbackInputDate,
       finance: processText(feedbackInputData.finance),
+      finance_plan: processText(feedbackInputData.finance_plan),
       hr: processText(feedbackInputData.hr),
       global: processText(feedbackInputData.global),
+      legal: processText(feedbackInputData.legal),
       logistics: processText(feedbackInputData.logistics),
       it: processText(feedbackInputData.it),
       authorId: user.uid,
@@ -955,7 +968,8 @@ function App() {
 
   const handleCloseFeedbackModal = () => {
     setEditingFeedbackId(null);
-    setFeedbackInputData({ finance: '', hr: '', global: '', logistics: '', it: '' });
+    // [수정] 초기화 객체 업데이트
+    setFeedbackInputData({ finance: '', finance_plan: '', hr: '', global: '', legal: '', logistics: '', it: '' });
     setFeedbackInputDate('');
     setIsFeedbackModalOpen(false);
   };
@@ -978,10 +992,11 @@ function App() {
             });
         });
     } else {
-        csvContent += "날짜,재무팀,인사총무팀,해외사업팀,구매물류팀,IT지원팀\n";
+        // [수정] 7개 팀 컬럼 추가
+        csvContent += "날짜,재무팀,재무기획팀,인사총무팀,해외사업팀,법무팀,구매물류팀,IT지원팀\n";
         targetDates.forEach(d => {
             feedbacks.filter(f => f.date === d).forEach(f => {
-                csvContent += `${f.date},${clean(format(f.finance))},${clean(format(f.hr))},${clean(format(f.global))},${clean(format(f.logistics))},${clean(format(f.it))}\n`;
+                csvContent += `${f.date},${clean(format(f.finance))},${clean(format(f.finance_plan))},${clean(format(f.hr))},${clean(format(f.global))},${clean(format(f.legal))},${clean(format(f.logistics))},${clean(format(f.it))}\n`;
             });
         });
     }
@@ -1211,7 +1226,11 @@ function App() {
                                         <div className="flex space-x-2">
                                             <button onClick={() => {
                                                 setEditingFeedbackId(fb.id); setFeedbackInputDate(fb.date);
-                                                setFeedbackInputData({ finance: fb.finance, hr: fb.hr, global: fb.global, logistics: fb.logistics, it: fb.it });
+                                                // [수정] 수정 모드 진입 시 7개 필드 모두 로드
+                                                setFeedbackInputData({ 
+                                                    finance: fb.finance, finance_plan: fb.finance_plan, hr: fb.hr, 
+                                                    global: fb.global, legal: fb.legal, logistics: fb.logistics, it: fb.it 
+                                                });
                                                 setIsFeedbackModalOpen(true);
                                             }} className="px-3 py-1 bg-white border border-indigo-200 text-indigo-600 rounded text-xs hover:bg-indigo-50">수정</button>
                                             <button onClick={async () => {
@@ -1220,9 +1239,10 @@ function App() {
                                         </div>
                                     </div>
                                     
-                                    <div className="grid grid-cols-1 md:grid-cols-5 divide-y md:divide-y-0 md:divide-x divide-indigo-50">
+                                    {/* [수정] 7개 컬럼에 맞는 그리드 (모바일 1열, 태블릿 2열, PC 3~4열) */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:gap-px bg-indigo-50 border-t border-indigo-100">
                                         {FEEDBACK_TEAMS.map(team => (
-                                            <div key={team.id} className="p-5 hover:bg-gray-50">
+                                            <div key={team.id} className="p-5 bg-white hover:bg-gray-50 h-full">
                                                 <h4 className="font-bold text-indigo-900 mb-2 text-sm border-b-2 border-indigo-100 inline-block pb-1">{team.label}</h4>
                                                 <div className="text-sm text-gray-700 min-h-[60px]">{renderText(fb[team.id])}</div>
                                             </div>
@@ -1314,6 +1334,7 @@ function App() {
                     
                     <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100">
                         <p className="text-indigo-800 font-bold mb-4 flex items-center text-sm"><CheckCircle2 className="w-4 h-4 mr-2"/> 각 팀별 지시사항 및 협의 내용을 입력하세요.</p>
+                        {/* [수정] 7개 팀 입력 필드 그리드 */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {FEEDBACK_TEAMS.map(team => (
                                 <div key={team.id} className="bg-white p-4 rounded-lg shadow-sm border border-indigo-100">
