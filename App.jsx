@@ -137,7 +137,6 @@ const AGGREGATION_TABS = [
     { id: 'Total', label: '연간', range: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
 ];
 
-
 // --- 아이콘 매핑 헬퍼 ---
 const getIconComponent = (iconName) => {
   switch (iconName) {
@@ -158,9 +157,9 @@ const getIconComponent = (iconName) => {
 // ==========================================
 const FinancialDashboard = () => {
     const [currentYear, setCurrentYear] = useState('2026');
-    // currentTab can be a month number (1-12) or aggregation ID string ('1Q', 'Total', etc.)
-    const [currentTab, setCurrentTab] = useState(new Date().getMonth() + 1); 
-    const [financeData, setFinanceData] = useState({}); // { month: { revenue: {plan:0, actual:0}, ... } }
+    // Default tab set to 'Total' as requested
+    const [currentTab, setCurrentTab] = useState('Total'); 
+    const [financeData, setFinanceData] = useState({}); 
     const [loading, setLoading] = useState(true);
 
     // 데이터 구독
@@ -171,14 +170,14 @@ const FinancialDashboard = () => {
             if (docSnap.exists()) {
                 setFinanceData(docSnap.data().data || {});
             } else {
-                setFinanceData({}); // 데이터 없음
+                setFinanceData({});
             }
             setLoading(false);
         });
         return () => unsub();
     }, [currentYear]);
 
-    // 데이터 저장 핸들러 (월별 입력 모드에서만 사용)
+    // 데이터 저장 핸들러
     const handleValueChange = async (month, field, type, value) => {
         const numValue = Number(value) || 0;
         const docId = `finance_${currentYear}`;
@@ -202,7 +201,6 @@ const FinancialDashboard = () => {
     const getAggregatedValues = (range) => {
         const aggregated = { plans: {}, actuals: {} };
         
-        // 1. 단순 합산 항목 초기화
         FINANCIAL_ITEMS.forEach(item => {
             if (item.type === 'input') {
                 aggregated.plans[item.id] = 0;
@@ -210,7 +208,6 @@ const FinancialDashboard = () => {
             }
         });
 
-        // 2. 범위 내 월별 데이터 합산
         range.forEach(month => {
             const monthData = financeData[month];
             if (monthData) {
@@ -223,7 +220,6 @@ const FinancialDashboard = () => {
             }
         });
 
-        // 3. 계산 항목(이익 등) 재계산 (합산된 기초 데이터 기반)
         FINANCIAL_ITEMS.forEach(item => {
             if (item.type === 'calc') {
                 aggregated.plans[item.id] = item.formula(aggregated.plans);
@@ -234,22 +230,19 @@ const FinancialDashboard = () => {
         return aggregated;
     };
 
-    // 현재 탭에 따른 데이터 준비
     const isAggregation = typeof currentTab === 'string';
     const currentRange = isAggregation 
-        ? AGGREGATION_TABS.find(t => t.id === currentTab).range 
+        ? AGGREGATION_TABS.find(t => t.id === currentTab)?.range || [] 
         : [currentTab];
 
     const { plans: mPlans, actuals: mActuals } = useMemo(() => {
         if (isAggregation) {
             return getAggregatedValues(currentRange);
         } else {
-            // 단일 월 모드: 기존 로직 재활용
             const monthData = financeData[currentTab] || {};
             const plans = {};
             const actuals = {};
             
-            // 입력값 세팅
             FINANCIAL_ITEMS.forEach(item => {
                 if (item.type === 'input') {
                     plans[item.id] = monthData?.[item.id]?.plan || 0;
@@ -257,7 +250,6 @@ const FinancialDashboard = () => {
                 }
             });
 
-            // 계산값 세팅
             FINANCIAL_ITEMS.forEach(item => {
                 if (item.type === 'calc') {
                     plans[item.id] = item.formula(plans);
@@ -295,9 +287,7 @@ const FinancialDashboard = () => {
                 <div className="p-20 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto text-emerald-600"/></div>
             ) : (
                 <div className="space-y-6">
-                    {/* 상단: 기간 선택 탭 (월별 + 합산) */}
                     <div className="flex flex-wrap items-center gap-2">
-                        {/* 월별 탭 */}
                         <div className="flex overflow-x-auto pb-2 gap-1 scrollbar-hide max-w-full lg:max-w-2xl">
                             {MONTHS.map(m => (
                                 <button
@@ -314,7 +304,6 @@ const FinancialDashboard = () => {
                             ))}
                         </div>
                         <div className="w-px h-6 bg-slate-300 mx-2 hidden lg:block"></div>
-                        {/* 합산 탭 */}
                         <div className="flex overflow-x-auto pb-2 gap-1 scrollbar-hide">
                             {AGGREGATION_TABS.map(tab => (
                                 <button
@@ -332,7 +321,6 @@ const FinancialDashboard = () => {
                         </div>
                     </div>
 
-                    {/* 메인: 손익계산서 테이블 */}
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                         <div className={`p-4 border-b border-slate-100 flex justify-between items-center ${isAggregation ? 'bg-slate-800 text-white' : 'bg-slate-50'}`}>
                             <h3 className={`font-bold text-lg flex items-center gap-2 ${isAggregation ? 'text-white' : 'text-slate-800'}`}>
@@ -415,7 +403,6 @@ const FinancialDashboard = () => {
                         )}
                     </div>
 
-                    {/* 하단: 간단 차트 (매출 & 영업이익 추이) */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                             <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
@@ -472,22 +459,19 @@ const KPIDashboard = () => {
   const [isCommonKpiModalOpen, setIsCommonKpiModalOpen] = useState(false);
   const [isCommonFormOpen, setIsCommonFormOpen] = useState(false);
   
-  // 기간 상태 관리
-  const [currentYear, setCurrentYear] = useState('2025');
+  // 기간 상태 관리: Default 2026
+  const [currentYear, setCurrentYear] = useState('2026');
   const [currentPeriod, setCurrentPeriod] = useState('1H');
 
   const [editingKpi, setEditingKpi] = useState(null);
-  
-  // 데이터 상태
-  const [deptDataMap, setDeptDataMap] = useState({}); // { deptId: { kpis: [] } }
+  const [deptDataMap, setDeptDataMap] = useState({});
   const [commonKpis, setCommonKpis] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 1. 데이터 구독 (선택된 연도/반기에 따라)
+  // 1. 데이터 구독
   useEffect(() => {
     setLoading(true);
     
-    // (A) 부서별 KPI 구독 (kpi_records 컬렉션 사용)
     const q = query(
         collection(db, 'kpi_records'), 
         where('year', '==', currentYear),
@@ -504,7 +488,6 @@ const KPIDashboard = () => {
         setLoading(false);
     });
 
-    // (B) 전사 공통 KPI 구독 (kpi_commons 컬렉션 사용)
     const commonDocId = `${currentYear}_${currentPeriod}`;
     const unsubCommon = onSnapshot(doc(db, 'kpi_commons', commonDocId), (docSnap) => {
         if (docSnap.exists()) {
@@ -608,15 +591,6 @@ const KPIDashboard = () => {
       const newCommonKpis = commonKpis.filter(k => k.id !== kpiId);
       await updateDoc(doc(db, 'kpi_commons', docId), { kpis: newCommonKpis });
   };
-
-  // 부서 관리
-  const handleAddDept = async (name) => {
-    // KPI 부서 관리 기능은 여기서는 메타데이터가 코드상 상수라 제한적이지만,
-    // 필요 시 DB화 가능. 현재는 이름 변경 등 UI 액션만 제공
-    alert("현재 부서 추가 기능은 코드 상수를 수정해야 합니다.");
-  };
-  const handleRemoveDept = async (id) => { alert("부서 삭제 기능은 현재 비활성화되어 있습니다."); };
-  const handleRenameDept = async (id, newName) => { alert("부서명 수정 기능은 현재 비활성화되어 있습니다."); };
 
   // --- 계산 로직 ---
   const calculateAchievement = (target, current, lowerIsBetter = false) => {
@@ -743,9 +717,6 @@ const KPIDashboard = () => {
                             <span>{Math.round(calculateAchievement(kpi.target, kpi.current, kpi.lowerIsBetter))}%</span>
                         </div>
                     ))}
-                    {deptRecord.kpis.length === 0 && commonKpis.length === 0 && (
-                        <div className="text-xs text-slate-400 text-center py-1">등록된 KPI 없음</div>
-                    )}
                 </div>
               </div>
             );
@@ -911,6 +882,7 @@ const KPIDashboard = () => {
                           </button>
                       </div>
 
+                      {/* 리스트 표시 */}
                       <div className="space-y-3">
                           {commonKpis.map(kpi => (
                               <div key={kpi.id} className="border border-slate-200 rounded-lg p-4 flex justify-between items-center bg-white">
@@ -946,7 +918,7 @@ const KPIDashboard = () => {
           </div>
       )}
 
-      {/* Department Manager Modal (Read-only for now) */}
+      {/* Department Manager Modal */}
       {isManageModalOpen && (
         <TeamManagerModal 
             onClose={() => setIsManageModalOpen(false)} 
@@ -1011,7 +983,6 @@ const KPIFormModal = ({ kpi, title, onClose, onSave, isCommon = false }) => {
   );
 };
 
-// Simple Read-only Manager for visual consistency
 const TeamManagerModal = ({ onClose }) => (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[80] backdrop-blur-sm">
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
@@ -1028,7 +999,7 @@ const TeamManagerModal = ({ onClose }) => (
 // --- 메인 앱 컴포넌트 ---
 function App() {
   const [user, setUser] = useState(null);
-  const [appMode, setAppMode] = useState('meeting'); // 'meeting' | 'kpi' | 'finance'
+  const [appMode, setAppMode] = useState('meeting'); 
   
   // --- Meeting States ---
   const [minutes, setMinutes] = useState([]);
@@ -1592,7 +1563,6 @@ function App() {
                     
                     <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100">
                         <p className="text-indigo-800 font-bold mb-4 flex items-center text-sm"><CheckCircle2 className="w-4 h-4 mr-2"/> 각 팀별 지시사항 및 협의 내용을 입력하세요.</p>
-                        {/* [수정] 7개 팀 입력 필드 그리드 */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {FEEDBACK_TEAMS.map(team => (
                                 <div key={team.id} className="bg-white p-4 rounded-lg shadow-sm border border-indigo-100">
