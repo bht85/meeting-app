@@ -5,7 +5,8 @@ import {
   MessageSquare, Layout, Filter, Download, Trash2, X, ExternalLink, 
   RotateCcw, Archive, Megaphone, Menu, CheckCircle2, Loader2,
   BarChart3, Code, ShoppingBag, AlertCircle, ArrowLeft, Target, 
-  DollarSign, Plus, Edit2, Settings, Edit, Building2, Lock, Scale
+  DollarSign, Plus, Edit2, Settings, Edit, Building2, Lock, Scale,
+  ChevronDown
 } from 'lucide-react';
 
 // --- Firebase 라이브러리 ---
@@ -26,7 +27,8 @@ import {
   updateDoc, 
   deleteDoc,
   setDoc,
-  getDocs
+  getDocs,
+  where
 } from 'firebase/firestore';
 
 // --- [설정] 사용자분의 Firebase 키값 적용 ---
@@ -64,15 +66,16 @@ const DEPARTMENTS = [
   "IT지원팀"
 ];
 
-// 정렬 순서 정의
-const TEAM_ORDER = [
-  "재무팀", 
-  "재무기획팀", 
-  "인사총무팀", 
-  "해외사업팀", 
-  "법무팀",
-  "구매물류팀", 
-  "IT지원팀"
+// --- 부서 메타데이터 (순서 및 아이콘 정의) ---
+// KPI 현황판은 이 순서와 정보를 기반으로 표시됩니다.
+const DEPARTMENTS_META = [
+    { id: 'finance_team', name: '재무팀', icon: 'dollar' },
+    { id: 'finance_plan', name: '재무기획팀', icon: 'dollar' },
+    { id: 'hr_ga', name: '인사총무팀', icon: 'users' },
+    { id: 'global_biz', name: '해외사업팀', icon: 'global' },
+    { id: 'legal_team', name: '법무팀', icon: 'legal' },
+    { id: 'logistics', name: '구매물류팀', icon: 'truck' },
+    { id: 'it_support', name: 'IT지원팀', icon: 'monitor' }
 ];
 
 const SECTIONS = [
@@ -81,7 +84,6 @@ const SECTIONS = [
   { id: 'discussion', label: '다. 협의업무', icon: MessageSquare, placeholder: '내용이 없으면 자동으로 \'특이사항 없음\'으로 저장됩니다.' }
 ];
 
-// 경영본부 회의 의견 작성용 팀 리스트 (순서 반영)
 const FEEDBACK_TEAMS = [
   { id: 'finance', label: '재무팀' },
   { id: 'finance_plan', label: '재무기획팀' },
@@ -90,6 +92,12 @@ const FEEDBACK_TEAMS = [
   { id: 'legal', label: '법무팀' },
   { id: 'logistics', label: '구매물류팀' },
   { id: 'it', label: 'IT지원팀' }
+];
+
+const YEARS = ['2024', '2025', '2026', '2027'];
+const PERIODS = [
+    { id: '1H', label: '상반기 (1H)' },
+    { id: '2H', label: '하반기 (2H)' }
 ];
 
 // --- 아이콘 매핑 헬퍼 ---
@@ -102,105 +110,108 @@ const getIconComponent = (iconName) => {
     case 'global': return <RotateCcw className="w-5 h-5" />; 
     case 'truck': return <Archive className="w-5 h-5" />; 
     case 'monitor': return <Layout className="w-5 h-5" />; 
-    case 'legal': return <Scale className="w-5 h-5" />; // 법무팀 아이콘
+    case 'legal': return <Scale className="w-5 h-5" />;
     default: return <Briefcase className="w-5 h-5" />;
   }
 };
 
-// --- 초기 데이터 (DB 비어있을 때 시딩용) ---
-const INITIAL_DEPARTMENTS = [
-    { id: 'finance_team', name: '재무팀', icon: 'dollar', kpis: [] },
-    { id: 'finance_plan', name: '재무기획팀', icon: 'dollar', kpis: [] },
-    { id: 'hr_ga', name: '인사총무팀', icon: 'users', kpis: [] },
-    { id: 'global_biz', name: '해외사업팀', icon: 'global', kpis: [] },
-    { id: 'legal_team', name: '법무팀', icon: 'legal', kpis: [] },
-    { id: 'logistics', name: '구매물류팀', icon: 'truck', kpis: [] },
-    { id: 'it_support', name: 'IT지원팀', icon: 'monitor', kpis: [] }
-];
-
 // ==========================================
-// [KPI 대시보드 컴포넌트] (Firestore 연동)
+// [KPI 대시보드 컴포넌트] (Firestore 연동 - 기간별)
 // ==========================================
 const KPIDashboard = () => {
   const [selectedDeptId, setSelectedDeptId] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false); // 부서 개별 KPI 모달
-  const [isManageModalOpen, setIsManageModalOpen] = useState(false); // 부서 관리 모달
-  const [isCommonKpiModalOpen, setIsCommonKpiModalOpen] = useState(false); // 전사 공통 KPI 관리 모달
-  const [isCommonFormOpen, setIsCommonFormOpen] = useState(false); // 공통 KPI 추가/수정 폼
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isCommonKpiModalOpen, setIsCommonKpiModalOpen] = useState(false);
+  const [isCommonFormOpen, setIsCommonFormOpen] = useState(false);
+  
+  // 기간 상태 관리
+  const [currentYear, setCurrentYear] = useState('2025');
+  const [currentPeriod, setCurrentPeriod] = useState('1H');
 
   const [editingKpi, setEditingKpi] = useState(null);
-  const [departments, setDepartments] = useState([]);
+  
+  // 데이터 상태
+  const [deptDataMap, setDeptDataMap] = useState({}); // { deptId: { kpis: [] } }
   const [commonKpis, setCommonKpis] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 1. KPI 데이터 구독 (부서별)
+  // 1. 데이터 구독 (선택된 연도/반기에 따라)
   useEffect(() => {
-    const q = query(collection(db, 'kpi_departments'));
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      if (snapshot.empty) {
-        const checkSnap = await getDocs(collection(db, 'kpi_departments'));
-        if (checkSnap.empty) {
-             INITIAL_DEPARTMENTS.forEach(async (dept) => {
-                const { id, ...data } = dept;
-                await setDoc(doc(db, 'kpi_departments', id), data);
-             });
-        }
-      } else {
-        const loaded = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        // [수정] 요청하신 순서대로 정렬
-        loaded.sort((a, b) => {
-            const indexA = TEAM_ORDER.indexOf(a.name);
-            const indexB = TEAM_ORDER.indexOf(b.name);
-            // 목록에 없는 팀은 뒤로 보냄
-            if (indexA === -1) return 1;
-            if (indexB === -1) return -1;
-            return indexA - indexB;
-        });
-        setDepartments(loaded);
-      }
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
+    setLoading(true);
+    
+    // (A) 부서별 KPI 구독 (kpi_records 컬렉션 사용)
+    // 쿼리: year == currentYear AND period == currentPeriod
+    const q = query(
+        collection(db, 'kpi_records'), 
+        where('year', '==', currentYear),
+        where('period', '==', currentPeriod)
+    );
 
-  // 2. 공통 KPI 데이터 구독
-  useEffect(() => {
-    const unsubCommon = onSnapshot(doc(db, 'kpi_commons', 'main'), (docSnap) => {
+    const unsubRecords = onSnapshot(q, (snapshot) => {
+        const newDataMap = {};
+        snapshot.docs.forEach(doc => {
+            const data = doc.data();
+            newDataMap[data.deptId] = data;
+        });
+        setDeptDataMap(newDataMap);
+        setLoading(false);
+    });
+
+    // (B) 전사 공통 KPI 구독 (kpi_commons 컬렉션 사용)
+    // 문서 ID: year_period (예: 2025_1H)
+    const commonDocId = `${currentYear}_${currentPeriod}`;
+    const unsubCommon = onSnapshot(doc(db, 'kpi_commons', commonDocId), (docSnap) => {
         if (docSnap.exists()) {
             setCommonKpis(docSnap.data().kpis || []);
         } else {
-            // 문서가 없으면 생성
-            setDoc(doc(db, 'kpi_commons', 'main'), { kpis: [] });
+            setCommonKpis([]); // 해당 기간 데이터 없으면 빈 배열
         }
     });
-    return () => unsubCommon();
-  }, []);
+
+    return () => {
+        unsubRecords();
+        unsubCommon();
+    };
+  }, [currentYear, currentPeriod]);
 
   // --- Firestore 업데이트 함수들 ---
 
+  // 공통 헬퍼: 해당 기간/부서의 문서 ID 생성
+  const getRecordDocId = (deptId) => `${currentYear}_${currentPeriod}_${deptId}`;
+  const getCommonDocId = () => `${currentYear}_${currentPeriod}`;
+
   // 실적 업데이트 (부서 개별)
   const handleUpdateKPIValue = async (deptId, kpiId, newValue) => {
-    const dept = departments.find(d => d.id === deptId);
-    if (!dept) return;
-    const newKpis = dept.kpis.map(k => k.id === kpiId ? { ...k, current: Number(newValue) } : k);
-    await updateDoc(doc(db, 'kpi_departments', deptId), { kpis: newKpis });
+    const docId = getRecordDocId(deptId);
+    const currentData = deptDataMap[deptId];
+    
+    if (!currentData) return; // 데이터가 없으면 업데이트 불가 (생성 필요)
+
+    const newKpis = currentData.kpis.map(k => k.id === kpiId ? { ...k, current: Number(newValue) } : k);
+    
+    await updateDoc(doc(db, 'kpi_records', docId), { kpis: newKpis });
   };
 
   // KPI 삭제 (부서 개별)
   const handleDeleteKPI = async (deptId, kpiId) => {
     if (!window.confirm('삭제하시겠습니까?')) return;
-    const dept = departments.find(d => d.id === deptId);
-    if (!dept) return;
-    const newKpis = dept.kpis.filter(k => k.id !== kpiId);
-    await updateDoc(doc(db, 'kpi_departments', deptId), { kpis: newKpis });
+    const docId = getRecordDocId(deptId);
+    const currentData = deptDataMap[deptId];
+    
+    if (!currentData) return;
+
+    const newKpis = currentData.kpis.filter(k => k.id !== kpiId);
+    await updateDoc(doc(db, 'kpi_records', docId), { kpis: newKpis });
   };
 
   // KPI 저장 (부서 개별 추가/수정)
   const handleSaveKPI = async (deptId, kpiData) => {
-    const dept = departments.find(d => d.id === deptId);
-    if (!dept) return;
-    let newKpis = [...dept.kpis];
+    const docId = getRecordDocId(deptId);
+    const currentData = deptDataMap[deptId];
+    let newKpis = currentData ? [...currentData.kpis] : [];
+
     if (kpiData.id) {
+      // 수정
       newKpis = newKpis.map(k => k.id === kpiData.id ? { 
           ...kpiData, 
           current: Number(kpiData.current), 
@@ -208,6 +219,7 @@ const KPIDashboard = () => {
           weight: Number(kpiData.weight) 
       } : k);
     } else {
+      // 추가
       newKpis.push({ 
         ...kpiData, 
         id: Date.now().toString(), 
@@ -216,13 +228,25 @@ const KPIDashboard = () => {
         weight: Number(kpiData.weight) 
       });
     }
-    await updateDoc(doc(db, 'kpi_departments', deptId), { kpis: newKpis });
+
+    // 문서가 없으면 생성(set), 있으면 수정(update)
+    // setDoc with merge is safer here
+    await setDoc(doc(db, 'kpi_records', docId), {
+        deptId: deptId,
+        year: currentYear,
+        period: currentPeriod,
+        kpis: newKpis,
+        updatedAt: serverTimestamp()
+    }, { merge: true });
+
     setIsModalOpen(false);
   };
 
-  // --- [신규] 공통 KPI 관련 함수들 ---
+  // --- 공통 KPI 관련 함수들 ---
   const handleSaveCommonKPI = async (kpiData) => {
+      const docId = getCommonDocId();
       let newCommonKpis = [...commonKpis];
+      
       if (kpiData.id) {
           newCommonKpis = newCommonKpis.map(k => k.id === kpiData.id ? {
               ...kpiData,
@@ -237,42 +261,27 @@ const KPIDashboard = () => {
               current: Number(kpiData.current),
               target: Number(kpiData.target),
               weight: Number(kpiData.weight),
-              isCommon: true // 플래그
+              isCommon: true 
           });
       }
-      await updateDoc(doc(db, 'kpi_commons', 'main'), { kpis: newCommonKpis });
+      
+      await setDoc(doc(db, 'kpi_commons', docId), { 
+          year: currentYear,
+          period: currentPeriod,
+          kpis: newCommonKpis 
+      }, { merge: true });
+      
       setIsCommonFormOpen(false);
   };
 
   const handleDeleteCommonKPI = async (kpiId) => {
-      if (!window.confirm('전사 공통 KPI를 삭제하시겠습니까? 모든 부서의 점수에 영향을 미칩니다.')) return;
+      if (!window.confirm('전사 공통 KPI를 삭제하시겠습니까?')) return;
+      const docId = getCommonDocId();
       const newCommonKpis = commonKpis.filter(k => k.id !== kpiId);
-      await updateDoc(doc(db, 'kpi_commons', 'main'), { kpis: newCommonKpis });
+      await updateDoc(doc(db, 'kpi_commons', docId), { kpis: newCommonKpis });
   };
 
-  // 부서 관리
-  const handleAddDept = async (name) => {
-    if (!name.trim()) return;
-    await addDoc(collection(db, 'kpi_departments'), {
-      name: name,
-      icon: 'briefcase', 
-      kpis: []
-    });
-  };
-
-  const handleRemoveDept = async (id) => {
-    if (window.confirm('해당 부서와 포함된 모든 KPI 데이터가 영구 삭제됩니다.\n계속하시겠습니까?')) {
-      await deleteDoc(doc(db, 'kpi_departments', id));
-      if (selectedDeptId === id) setSelectedDeptId(null);
-    }
-  };
-
-  const handleRenameDept = async (id, newName) => {
-    if (!newName.trim()) return;
-    await updateDoc(doc(db, 'kpi_departments', id), { name: newName });
-  };
-
-  // --- 계산 로직 (공통 KPI 포함) ---
+  // --- 계산 로직 ---
   const calculateAchievement = (target, current, lowerIsBetter = false) => {
     if (lowerIsBetter) {
       if (current <= target) return 100;
@@ -283,7 +292,6 @@ const KPIDashboard = () => {
   };
 
   const getDeptScore = (deptKpis) => {
-    // 부서 KPI + 전사 공통 KPI 합산 계산
     const allKpis = [...(deptKpis || []), ...commonKpis];
     if (allKpis.length === 0) return 0;
 
@@ -293,7 +301,6 @@ const KPIDashboard = () => {
       totalWeight += kpi.weight;
     });
     
-    // 가중치 합이 0이면 0 리턴, 아니면 가중치 총합으로 나눔 (가중치 기반 평균)
     return totalWeight === 0 ? 0 : Math.round(totalScore / totalWeight);
   };
 
@@ -309,43 +316,71 @@ const KPIDashboard = () => {
     return 'bg-red-500';
   };
 
-  const selectedDeptData = departments.find(d => d.id === selectedDeptId);
+  // 현재 선택된 부서의 KPI 데이터 가져오기 (DB데이터 없으면 빈 배열)
+  const selectedDeptKpis = selectedDeptId ? (deptDataMap[selectedDeptId]?.kpis || []) : [];
+  const selectedDeptMeta = DEPARTMENTS_META.find(d => d.id === selectedDeptId);
 
   if (loading) return <div className="p-10 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-600"/></div>;
 
   return (
     <div className="bg-gray-50 min-h-screen p-4 rounded-xl">
-      <div className="mb-6 flex flex-col sm:flex-row justify-between items-end gap-4">
+      {/* 헤더: 타이틀 + 연도/반기 선택 */}
+      <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-200 pb-6">
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <BarChart3 className="w-6 h-6 text-indigo-600" /> KPI 현황판
-            <button 
-                onClick={() => setIsManageModalOpen(true)}
-                className="p-1.5 ml-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-full transition-colors"
-                title="부서 관리"
-            >
-                <Settings className="w-4 h-4" />
-            </button>
           </h2>
-          <p className="text-sm text-slate-500">부서별 성과 + 전사 공통 지표 통합 모니터링</p>
+          <p className="text-sm text-slate-500 mt-1">부서별 성과 + 전사 공통 지표 (연도/반기별 관리)</p>
         </div>
-        <button 
-            onClick={() => setIsCommonKpiModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 shadow-sm transition-colors"
-        >
-            <Building2 className="w-4 h-4" /> 전사 지표 관리
-        </button>
+        
+        <div className="flex flex-wrap items-center gap-3">
+            {/* 연도 선택 */}
+            <div className="relative">
+                <select 
+                    value={currentYear} 
+                    onChange={(e) => setCurrentYear(e.target.value)}
+                    className="appearance-none bg-white border border-slate-300 text-slate-700 py-2 pl-4 pr-8 rounded-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+                >
+                    {YEARS.map(y => <option key={y} value={y}>{y}년</option>)}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"/>
+            </div>
+
+            {/* 반기 선택 */}
+            <div className="relative">
+                <select 
+                    value={currentPeriod} 
+                    onChange={(e) => setCurrentPeriod(e.target.value)}
+                    className="appearance-none bg-white border border-slate-300 text-slate-700 py-2 pl-4 pr-8 rounded-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+                >
+                    {PERIODS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"/>
+            </div>
+
+            <div className="w-px h-6 bg-slate-300 mx-1 hidden md:block"></div>
+
+            <button 
+                onClick={() => setIsCommonKpiModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 shadow-sm transition-colors"
+            >
+                <Building2 className="w-4 h-4" /> 전사 지표 관리
+            </button>
+        </div>
       </div>
 
       {selectedDeptId === null ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {departments.map((dept) => {
-            const score = getDeptScore(dept.kpis);
+          {DEPARTMENTS_META.map((dept) => {
+            // 해당 부서의 현재 연도/반기 데이터 조회
+            const deptRecord = deptDataMap[dept.id] || { kpis: [] };
+            const score = getDeptScore(deptRecord.kpis);
+            
             return (
               <div key={dept.id} onClick={() => setSelectedDeptId(dept.id)}
                 className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 cursor-pointer hover:shadow-md transition-all group relative overflow-hidden"
               >
-                {/* 상단 장식 바 */}
+                {/* 상단 장식 바 (점수에 따라 색상 변경) */}
                 <div className={`absolute top-0 left-0 right-0 h-1 ${score >= 90 ? 'bg-green-500' : score >= 70 ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
                 
                 <div className="flex justify-between items-start mb-4">
@@ -355,7 +390,7 @@ const KPIDashboard = () => {
                     </div>
                     <div>
                       <h2 className="text-lg font-bold text-slate-800 group-hover:text-indigo-600">{dept.name}</h2>
-                      <p className="text-xs text-slate-500">개별 {dept.kpis?.length || 0}건 / 공통 {commonKpis.length}건</p>
+                      <p className="text-xs text-slate-500">개별 {deptRecord.kpis.length}건 / 공통 {commonKpis.length}건</p>
                     </div>
                   </div>
                   <div className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(score)}`}>
@@ -375,35 +410,31 @@ const KPIDashboard = () => {
 
                 {/* KPI 미리보기 (최대 2개) */}
                 <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                    {/* 공통 KPI 먼저 1개 보여주기 */}
+                    {/* 공통 KPI 1개 */}
                     {commonKpis.slice(0, 1).map(kpi => (
                         <div key={kpi.id} className="flex justify-between text-xs text-slate-500">
                             <span className="flex items-center gap-1 text-slate-400"><Building2 className="w-3 h-3"/> {kpi.name}</span>
                             <span>{Math.round(calculateAchievement(kpi.target, kpi.current, kpi.lowerIsBetter))}%</span>
                         </div>
                     ))}
-                    {/* 부서 KPI 1개 보여주기 */}
-                    {dept.kpis.slice(0, commonKpis.length > 0 ? 1 : 2).map(kpi => (
+                    {/* 부서 KPI 1개 */}
+                    {deptRecord.kpis.slice(0, commonKpis.length > 0 ? 1 : 2).map(kpi => (
                         <div key={kpi.id} className="flex justify-between text-xs text-slate-500">
                             <span>{kpi.name}</span>
                             <span>{Math.round(calculateAchievement(kpi.target, kpi.current, kpi.lowerIsBetter))}%</span>
                         </div>
                     ))}
+                    {deptRecord.kpis.length === 0 && commonKpis.length === 0 && (
+                        <div className="text-xs text-slate-400 text-center py-1">등록된 KPI 없음</div>
+                    )}
                 </div>
               </div>
             );
           })}
-          
-          <button 
-            onClick={() => setIsManageModalOpen(true)}
-            className="border-2 border-dashed border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center text-slate-400 hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50 transition-all min-h-[160px]"
-          >
-            <Plus className="w-8 h-8 mb-2 opacity-50" />
-            <span className="text-sm font-medium">새 부서 추가</span>
-          </button>
         </div>
       ) : (
-        selectedDeptData && (
+        // 상세 보기 화면
+        selectedDeptMeta && (
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden min-h-[500px]">
            <div className="bg-slate-50 border-b border-slate-200 p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -411,15 +442,18 @@ const KPIDashboard = () => {
                   <ArrowLeft className="w-5 h-5 text-slate-600" />
                 </button>
                 <div className="flex items-center gap-2">
-                  <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded border border-indigo-100">{getIconComponent(selectedDeptData.icon)}</div>
-                  <h2 className="text-lg font-bold text-slate-900">{selectedDeptData.name}</h2>
+                  <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded border border-indigo-100">{getIconComponent(selectedDeptMeta.icon)}</div>
+                  <div>
+                      <h2 className="text-lg font-bold text-slate-900">{selectedDeptMeta.name}</h2>
+                      <p className="text-xs text-slate-500 font-medium">{currentYear}년 {PERIODS.find(p=>p.id===currentPeriod)?.label}</p>
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
                 <div className="text-right mr-2">
                     <span className="text-xs text-slate-500 block">종합 점수</span>
-                    <span className={`text-2xl font-bold ${getDeptScore(selectedDeptData.kpis) >= 70 ? 'text-indigo-600' : 'text-red-500'}`}>
-                        {getDeptScore(selectedDeptData.kpis)}점
+                    <span className={`text-2xl font-bold ${getDeptScore(selectedDeptKpis) >= 70 ? 'text-indigo-600' : 'text-red-500'}`}>
+                        {getDeptScore(selectedDeptKpis)}점
                     </span>
                 </div>
                 <button onClick={() => { setEditingKpi(null); setIsModalOpen(true); }} className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm shadow-sm">
@@ -449,14 +483,13 @@ const KPIDashboard = () => {
                                 </div>
                               </div>
                               <div className="flex items-center gap-4">
-                                 {/* 공통 KPI는 여기서 수정 불가 (Read-only) */}
                                  <div className="text-right">
                                    <div className="text-[10px] text-slate-400 font-bold uppercase">현재 실적</div>
                                    <div className="font-bold text-slate-700 text-lg">
                                      {kpi.current.toLocaleString()} <span className="text-xs font-normal text-slate-500">{kpi.unit}</span>
                                    </div>
                                  </div>
-                                 <div className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-400">
+                                 <div className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-400" title="전사 공통 지표는 관리 메뉴에서 수정 가능">
                                     <Lock className="w-4 h-4" />
                                  </div>
                                  <div className="w-24 text-right hidden md:block">
@@ -474,13 +507,13 @@ const KPIDashboard = () => {
              )}
 
              {/* 2. 부서 개별 KPI 섹션 */}
-             {selectedDeptData.kpis?.length === 0 && commonKpis.length === 0 && (
+             {selectedDeptKpis.length === 0 && commonKpis.length === 0 && (
                 <div className="p-12 text-center text-slate-400">
-                    <p>등록된 지표가 없습니다.</p>
+                    <p>{currentYear}년 {currentPeriod} 지표가 없습니다.</p>
                     <p className="text-sm mt-2">상단의 '팀 지표 추가' 버튼을 눌러보세요.</p>
                 </div>
              )}
-             {selectedDeptData.kpis?.map((kpi) => {
+             {selectedDeptKpis.map((kpi) => {
                 const achievement = calculateAchievement(kpi.target, kpi.current, kpi.lowerIsBetter);
                 return (
                   <div key={kpi.id} className="p-4 hover:bg-slate-50 transition-colors">
@@ -501,7 +534,7 @@ const KPIDashboard = () => {
                            <div className="text-[10px] text-slate-400 font-bold uppercase">실적</div>
                            <div className="flex items-center gap-1 justify-end">
                              <input type="number" value={kpi.current} 
-                               onChange={(e) => handleUpdateKPIValue(selectedDeptData.id, kpi.id, e.target.value)}
+                               onChange={(e) => handleUpdateKPIValue(selectedDeptId, kpi.id, e.target.value)}
                                className="w-20 text-right font-bold border-b border-indigo-200 focus:border-indigo-500 outline-none bg-transparent" 
                              />
                              <span className="text-xs text-slate-500">{kpi.unit}</span>
@@ -509,7 +542,7 @@ const KPIDashboard = () => {
                          </div>
                          <div className="flex flex-col gap-1 border-l pl-3 border-slate-200">
                             <button onClick={() => { setEditingKpi(kpi); setIsModalOpen(true); }} className="text-slate-400 hover:text-indigo-600"><Edit2 className="w-3.5 h-3.5" /></button>
-                            <button onClick={() => handleDeleteKPI(selectedDeptData.id, kpi.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => handleDeleteKPI(selectedDeptId, kpi.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
                          </div>
                          <div className="w-24 text-right hidden md:block">
                             <div className={`font-bold text-sm ${achievement < 70 ? 'text-red-500' : 'text-green-600'}`}>{Math.round(achievement)}%</div>
@@ -546,7 +579,7 @@ const KPIDashboard = () => {
                           <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
                               <Building2 className="w-5 h-5 text-indigo-600"/> 전사 공통 지표 관리
                           </h3>
-                          <p className="text-xs text-slate-500 mt-1">여기서 등록한 지표는 모든 부서의 성과 측정에 포함됩니다.</p>
+                          <p className="text-xs text-slate-500 mt-1">{currentYear}년 {currentPeriod} 기준 (모든 부서에 공통 적용)</p>
                       </div>
                       <button onClick={() => setIsCommonKpiModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
                   </div>
@@ -580,7 +613,7 @@ const KPIDashboard = () => {
                                   </div>
                               </div>
                           ))}
-                          {commonKpis.length === 0 && <p className="text-center text-sm text-slate-400 py-4">등록된 전사 공통 지표가 없습니다.</p>}
+                          {commonKpis.length === 0 && <p className="text-center text-sm text-slate-400 py-4">이 기간에 등록된 전사 공통 지표가 없습니다.</p>}
                       </div>
                   </div>
               </div>
@@ -597,111 +630,8 @@ const KPIDashboard = () => {
               )}
           </div>
       )}
-
-      {/* Department Manager Modal */}
-      {isManageModalOpen && (
-        <TeamManagerModal 
-            departments={departments} 
-            onClose={() => setIsManageModalOpen(false)} 
-            onAdd={handleAddDept}
-            onRemove={handleRemoveDept}
-            onRename={handleRenameDept}
-            getIcon={getIconComponent}
-        />
-      )}
     </div>
   );
-};
-
-// 부서 관리 컴포넌트
-const TeamManagerModal = ({ departments, onClose, onAdd, onRemove, onRename, getIcon }) => {
-    const [newDeptName, setNewDeptName] = useState('');
-    const [editingId, setEditingId] = useState(null);
-    const [editName, setEditName] = useState('');
-
-    const handleAddSubmit = (e) => {
-        e.preventDefault();
-        onAdd(newDeptName);
-        setNewDeptName('');
-    };
-
-    const startEdit = (dept) => {
-        setEditingId(dept.id);
-        setEditName(dept.name);
-    };
-
-    const saveEdit = (id) => {
-        onRename(id, editName);
-        setEditingId(null);
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[80] backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 max-h-[80vh] overflow-y-auto flex flex-col">
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                        <Settings className="w-5 h-5 text-indigo-600"/> 부서 관리
-                    </h3>
-                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
-                </div>
-                
-                {/* Add New */}
-                <form onSubmit={handleAddSubmit} className="flex gap-2 mb-6">
-                    <input 
-                        type="text" 
-                        value={newDeptName}
-                        onChange={(e) => setNewDeptName(e.target.value)}
-                        placeholder="새로운 부서명 입력"
-                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    />
-                    <button type="submit" disabled={!newDeptName.trim()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
-                        추가
-                    </button>
-                </form>
-
-                {/* List */}
-                <div className="space-y-3 flex-1 overflow-y-auto">
-                    {departments.map(dept => (
-                        <div key={dept.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100 group">
-                            {editingId === dept.id ? (
-                                <div className="flex items-center gap-2 flex-1 mr-2">
-                                    <input 
-                                        type="text" 
-                                        value={editName}
-                                        onChange={(e) => setEditName(e.target.value)}
-                                        className="flex-1 border border-indigo-300 rounded px-2 py-1 text-sm outline-none"
-                                        autoFocus
-                                    />
-                                    <button onClick={() => saveEdit(dept.id)} className="text-green-600 hover:bg-green-100 p-1 rounded"><CheckCircle2 className="w-4 h-4"/></button>
-                                    <button onClick={() => setEditingId(null)} className="text-slate-400 hover:bg-slate-200 p-1 rounded"><X className="w-4 h-4"/></button>
-                                </div>
-                            ) : (
-                                <div className="flex items-center gap-3">
-                                    <div className="text-slate-500">{getIcon(dept.icon)}</div>
-                                    <span className="font-medium text-slate-700">{dept.name}</span>
-                                    <span className="text-xs text-slate-400">({dept.kpis?.length || 0}개 KPI)</span>
-                                </div>
-                            )}
-                            
-                            {editingId !== dept.id && (
-                                <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => startEdit(dept)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="이름 변경">
-                                        <Edit2 className="w-4 h-4"/>
-                                    </button>
-                                    <button onClick={() => onRemove(dept.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" title="삭제">
-                                        <Trash2 className="w-4 h-4"/>
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    ))}
-                    {departments.length === 0 && (
-                        <p className="text-center text-sm text-slate-400 py-4">등록된 부서가 없습니다.</p>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
 };
 
 // KPI 입력/수정 폼 컴포넌트
@@ -786,7 +716,6 @@ function App() {
   const [inputDept, setInputDept] = useState(DEPARTMENTS[0]); 
   const [inputData, setInputData] = useState({ report: '', progress: '', discussion: '' });
   const [feedbackInputDate, setFeedbackInputDate] = useState('');
-  // [수정] 7개 팀(법무팀, 재무기획팀 포함) 초기값 설정
   const [feedbackInputData, setFeedbackInputData] = useState({ 
       finance: '', finance_plan: '', hr: '', global: '', legal: '', logistics: '', it: '' 
   });
@@ -814,6 +743,7 @@ function App() {
     const q1 = query(collection(db, 'weekly_minutes'));
     const unsub1 = onSnapshot(q1, (snapshot) => {
       const loaded = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // 회의록 순서는 작성일 기준 내림차순, 같은 날짜면 부서 순서
       loaded.sort((a, b) => {
         if (a.date !== b.date) return b.date.localeCompare(a.date);
         return DEPARTMENTS.indexOf(a.department) - DEPARTMENTS.indexOf(b.department);
@@ -928,7 +858,6 @@ function App() {
     if (!user) { alert("서버 연결 중입니다."); return; }
 
     setIsSubmitting(true);
-    // [수정] 7개 팀 필드 모두 저장
     const payload = {
       date: feedbackInputDate,
       finance: processText(feedbackInputData.finance),
@@ -968,7 +897,6 @@ function App() {
 
   const handleCloseFeedbackModal = () => {
     setEditingFeedbackId(null);
-    // [수정] 초기화 객체 업데이트
     setFeedbackInputData({ finance: '', finance_plan: '', hr: '', global: '', legal: '', logistics: '', it: '' });
     setFeedbackInputDate('');
     setIsFeedbackModalOpen(false);
@@ -992,7 +920,6 @@ function App() {
             });
         });
     } else {
-        // [수정] 7개 팀 컬럼 추가
         csvContent += "날짜,재무팀,재무기획팀,인사총무팀,해외사업팀,법무팀,구매물류팀,IT지원팀\n";
         targetDates.forEach(d => {
             feedbacks.filter(f => f.date === d).forEach(f => {
@@ -1226,7 +1153,7 @@ function App() {
                                         <div className="flex space-x-2">
                                             <button onClick={() => {
                                                 setEditingFeedbackId(fb.id); setFeedbackInputDate(fb.date);
-                                                // [수정] 수정 모드 진입 시 7개 필드 모두 로드
+                                                // [수정] 7개 팀 필드 모두 로드
                                                 setFeedbackInputData({ 
                                                     finance: fb.finance, finance_plan: fb.finance_plan, hr: fb.hr, 
                                                     global: fb.global, legal: fb.legal, logistics: fb.logistics, it: fb.it 
@@ -1239,7 +1166,7 @@ function App() {
                                         </div>
                                     </div>
                                     
-                                    {/* [수정] 7개 컬럼에 맞는 그리드 (모바일 1열, 태블릿 2열, PC 3~4열) */}
+                                    {/* [수정] 7개 컬럼 그리드 대응 (반응형) */}
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:gap-px bg-indigo-50 border-t border-indigo-100">
                                         {FEEDBACK_TEAMS.map(team => (
                                             <div key={team.id} className="p-5 bg-white hover:bg-gray-50 h-full">
