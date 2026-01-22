@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
 import { 
   Calendar, FileText, PlusCircle, Save, Users, Clock, Briefcase, 
@@ -6,7 +6,7 @@ import {
   RotateCcw, Archive, Megaphone, Menu, CheckCircle2, Loader2,
   BarChart3, Code, ShoppingBag, AlertCircle, ArrowLeft, Target, 
   DollarSign, Plus, Edit2, Settings, Edit, Building2, Lock, Scale,
-  ChevronDown
+  ChevronDown, PieChart, TrendingUp, Calculator
 } from 'lucide-react';
 
 // --- Firebase 라이브러리 ---
@@ -66,16 +66,15 @@ const DEPARTMENTS = [
   "IT지원팀"
 ];
 
-// --- 부서 메타데이터 (순서 및 아이콘 정의) ---
-// KPI 현황판은 이 순서와 정보를 기반으로 표시됩니다.
-const DEPARTMENTS_META = [
-    { id: 'finance_team', name: '재무팀', icon: 'dollar' },
-    { id: 'finance_plan', name: '재무기획팀', icon: 'dollar' },
-    { id: 'hr_ga', name: '인사총무팀', icon: 'users' },
-    { id: 'global_biz', name: '해외사업팀', icon: 'global' },
-    { id: 'legal_team', name: '법무팀', icon: 'legal' },
-    { id: 'logistics', name: '구매물류팀', icon: 'truck' },
-    { id: 'it_support', name: 'IT지원팀', icon: 'monitor' }
+// 정렬 순서 정의
+const TEAM_ORDER = [
+  "재무팀", 
+  "재무기획팀", 
+  "인사총무팀", 
+  "해외사업팀", 
+  "법무팀",
+  "구매물류팀", 
+  "IT지원팀"
 ];
 
 const SECTIONS = [
@@ -84,6 +83,7 @@ const SECTIONS = [
   { id: 'discussion', label: '다. 협의업무', icon: MessageSquare, placeholder: '내용이 없으면 자동으로 \'특이사항 없음\'으로 저장됩니다.' }
 ];
 
+// 경영본부 회의 의견 작성용 팀 리스트 (순서 반영)
 const FEEDBACK_TEAMS = [
   { id: 'finance', label: '재무팀' },
   { id: 'finance_plan', label: '재무기획팀' },
@@ -94,11 +94,37 @@ const FEEDBACK_TEAMS = [
   { id: 'it', label: 'IT지원팀' }
 ];
 
+// --- 부서 메타데이터 (순서 및 아이콘 정의) ---
+const DEPARTMENTS_META = [
+    { id: 'finance_team', name: '재무팀', icon: 'dollar' },
+    { id: 'finance_plan', name: '재무기획팀', icon: 'dollar' },
+    { id: 'hr_ga', name: '인사총무팀', icon: 'users' },
+    { id: 'global_biz', name: '해외사업팀', icon: 'global' },
+    { id: 'legal_team', name: '법무팀', icon: 'legal' },
+    { id: 'logistics', name: '구매물류팀', icon: 'truck' },
+    { id: 'it_support', name: 'IT지원팀', icon: 'monitor' }
+];
+
+// --- 재무제표 항목 정의 ---
+const FINANCIAL_ITEMS = [
+    { id: 'revenue', name: '매출액', type: 'input', isBold: true },
+    { id: 'cogs', name: '매출원가', type: 'input' },
+    { id: 'gross_profit', name: '매출총이익', type: 'calc', formula: (d) => d.revenue - d.cogs, bg: 'bg-gray-50', isBold: true },
+    { id: 'sga', name: '판매비와관리비', type: 'input' },
+    { id: 'op_profit', name: '영업이익', type: 'calc', formula: (d) => (d.revenue - d.cogs) - d.sga, bg: 'bg-blue-50', isBold: true },
+    { id: 'non_op_income', name: '영업외수익', type: 'input' },
+    { id: 'non_op_expense', name: '영업외비용', type: 'input' },
+    { id: 'pre_tax_profit', name: '세전이익', type: 'calc', formula: (d) => ((d.revenue - d.cogs) - d.sga) + d.non_op_income - d.non_op_expense, bg: 'bg-gray-50' },
+    { id: 'tax', name: '법인세비용', type: 'input' },
+    { id: 'net_income', name: '당기순이익', type: 'calc', formula: (d) => (((d.revenue - d.cogs) - d.sga) + d.non_op_income - d.non_op_expense) - d.tax, bg: 'bg-indigo-50', isBold: true, isResult: true }
+];
+
 const YEARS = ['2024', '2025', '2026', '2027'];
 const PERIODS = [
     { id: '1H', label: '상반기 (1H)' },
     { id: '2H', label: '하반기 (2H)' }
 ];
+const MONTHS = Array.from({length: 12}, (_, i) => i + 1);
 
 // --- 아이콘 매핑 헬퍼 ---
 const getIconComponent = (iconName) => {
@@ -116,11 +142,263 @@ const getIconComponent = (iconName) => {
 };
 
 // ==========================================
+// [재무 관리 컴포넌트]
+// ==========================================
+const FinancialDashboard = () => {
+    const [currentYear, setCurrentYear] = useState('2026');
+    const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
+    const [financeData, setFinanceData] = useState({}); // { month: { revenue: {plan:0, actual:0}, ... } }
+    const [loading, setLoading] = useState(true);
+
+    // 데이터 구독
+    useEffect(() => {
+        setLoading(true);
+        const docId = `finance_${currentYear}`;
+        const unsub = onSnapshot(doc(db, 'financial_reports', docId), (docSnap) => {
+            if (docSnap.exists()) {
+                setFinanceData(docSnap.data().data || {});
+            } else {
+                setFinanceData({}); // 데이터 없음
+            }
+            setLoading(false);
+        });
+        return () => unsub();
+    }, [currentYear]);
+
+    // 데이터 저장 핸들러
+    const handleValueChange = async (month, field, type, value) => {
+        const numValue = Number(value) || 0;
+        const docId = `finance_${currentYear}`;
+        
+        // Deep copy needed to update state correctly before sending to DB if we were using local state only,
+        // but here we just construct the update object for Firestore.
+        // Firestore supports dot notation for nested fields updates.
+        // e.g. "data.1.revenue.plan": 100
+        
+        const key = `data.${month}.${field}.${type}`;
+        
+        // Optimistic update locally? No, let's rely on snapshot for consistency.
+        // But we need to create the document if it doesn't exist.
+        try {
+            await setDoc(doc(db, 'financial_reports', docId), {
+                data: {
+                    [month]: {
+                        [field]: {
+                            [type]: numValue
+                        }
+                    }
+                }
+            }, { merge: true });
+        } catch (e) {
+            console.error("Error updating finance data:", e);
+        }
+    };
+
+    // 계산 로직 헬퍼
+    const getValues = (monthData) => {
+        const plans = {};
+        const actuals = {};
+        
+        // 기본 입력값 세팅
+        FINANCIAL_ITEMS.forEach(item => {
+            if (item.type === 'input') {
+                plans[item.id] = monthData?.[item.id]?.plan || 0;
+                actuals[item.id] = monthData?.[item.id]?.actual || 0;
+            }
+        });
+
+        // 계산값 세팅 (순서대로 계산해야 의존성 해결됨)
+        FINANCIAL_ITEMS.forEach(item => {
+            if (item.type === 'calc') {
+                plans[item.id] = item.formula(plans);
+                actuals[item.id] = item.formula(actuals);
+            }
+        });
+
+        return { plans, actuals };
+    };
+
+    const currentMonthData = financeData[currentMonth] || {};
+    const { plans: mPlans, actuals: mActuals } = getValues(currentMonthData);
+
+    return (
+        <div className="bg-gray-50 min-h-screen p-4 rounded-xl">
+            <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-200 pb-6">
+                <div>
+                    <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                        <PieChart className="w-6 h-6 text-emerald-600" /> 재무 성과 관리
+                    </h2>
+                    <p className="text-sm text-slate-500 mt-1">월별 손익계산서(P&L) 목표 대비 실적 관리</p>
+                </div>
+                <div className="flex items-center gap-3">
+                    <div className="relative">
+                        <select 
+                            value={currentYear} 
+                            onChange={(e) => setCurrentYear(e.target.value)}
+                            className="appearance-none bg-white border border-slate-300 text-slate-700 py-2 pl-4 pr-8 rounded-lg font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer shadow-sm"
+                        >
+                            {YEARS.map(y => <option key={y} value={y}>{y}년</option>)}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"/>
+                    </div>
+                </div>
+            </div>
+
+            {loading ? (
+                <div className="p-20 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto text-emerald-600"/></div>
+            ) : (
+                <div className="space-y-6">
+                    {/* 상단: 월 선택 탭 */}
+                    <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide">
+                        {MONTHS.map(m => (
+                            <button
+                                key={m}
+                                onClick={() => setCurrentMonth(m)}
+                                className={`px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-colors ${
+                                    currentMonth === m 
+                                    ? 'bg-emerald-600 text-white shadow-md' 
+                                    : 'bg-white text-slate-500 hover:bg-emerald-50 border border-slate-200'
+                                }`}
+                            >
+                                {m}월
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* 메인: 손익계산서 테이블 */}
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                            <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                                <FileText className="w-5 h-5 text-emerald-600"/> {currentMonth}월 손익계산서
+                            </h3>
+                            <div className="text-xs text-slate-500 bg-white px-3 py-1 rounded-full border border-slate-200">
+                                단위: 만원
+                            </div>
+                        </div>
+                        
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                                    <tr>
+                                        <th className="px-6 py-3 w-1/3">구분 (Account)</th>
+                                        <th className="px-6 py-3 text-right">계획 (Plan)</th>
+                                        <th className="px-6 py-3 text-right">실적 (Actual)</th>
+                                        <th className="px-6 py-3 text-right">달성률 (%)</th>
+                                        <th className="px-6 py-3 text-right">차이 (Diff)</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {FINANCIAL_ITEMS.map(item => {
+                                        const plan = mPlans[item.id] || 0;
+                                        const actual = mActuals[item.id] || 0;
+                                        const diff = actual - plan;
+                                        const rate = plan !== 0 ? ((actual / plan) * 100).toFixed(1) : (actual > 0 ? '100.0' : '0.0');
+                                        const isProfit = item.id.includes('profit') || item.id === 'net_income' || item.id === 'revenue';
+                                        
+                                        // 색상 로직: 이익 항목은 높아야 좋고(초록), 비용 항목은 낮아야 좋음(원가는 예외적일 수 있으나 단순화)
+                                        // 여기서는 단순하게 달성률 기준으로 표시 (매출/이익 기준)
+                                        const rateColor = Number(rate) >= 100 ? 'text-emerald-600' : Number(rate) >= 80 ? 'text-yellow-600' : 'text-red-600';
+
+                                        return (
+                                            <tr key={item.id} className={`hover:bg-gray-50 ${item.bg || 'bg-white'}`}>
+                                                <td className={`px-6 py-3 ${item.isBold ? 'font-bold text-slate-800' : 'text-slate-600'} flex items-center gap-2`}>
+                                                    {item.type === 'calc' && <Calculator className="w-3 h-3 text-slate-400"/>}
+                                                    {item.name}
+                                                </td>
+                                                <td className="px-6 py-3 text-right">
+                                                    {item.type === 'input' ? (
+                                                        <input 
+                                                            type="number"
+                                                            value={currentMonthData[item.id]?.plan || ''}
+                                                            placeholder="0"
+                                                            onChange={(e) => handleValueChange(currentMonth, item.id, 'plan', e.target.value)}
+                                                            className="w-24 text-right bg-transparent border-b border-transparent hover:border-slate-300 focus:border-emerald-500 focus:outline-none transition-colors"
+                                                        />
+                                                    ) : (
+                                                        <span className="font-medium">{plan.toLocaleString()}</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-3 text-right">
+                                                    {item.type === 'input' ? (
+                                                        <input 
+                                                            type="number"
+                                                            value={currentMonthData[item.id]?.actual || ''}
+                                                            placeholder="0"
+                                                            onChange={(e) => handleValueChange(currentMonth, item.id, 'actual', e.target.value)}
+                                                            className={`w-24 text-right bg-transparent border-b border-transparent hover:border-slate-300 focus:border-emerald-500 focus:outline-none transition-colors ${item.isBold ? 'font-bold' : ''}`}
+                                                        />
+                                                    ) : (
+                                                        <span className={`font-bold ${item.isResult ? 'text-indigo-600' : ''}`}>{actual.toLocaleString()}</span>
+                                                    )}
+                                                </td>
+                                                <td className={`px-6 py-3 text-right font-medium ${rateColor}`}>
+                                                    {rate}%
+                                                </td>
+                                                <td className={`px-6 py-3 text-right ${diff >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                                                    {diff > 0 ? '+' : ''}{diff.toLocaleString()}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* 하단: 간단 차트 (매출 & 영업이익 추이) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                            <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+                                <TrendingUp className="w-5 h-5 text-indigo-600"/> {currentMonth}월 성과 요약
+                            </h4>
+                            <div className="space-y-4">
+                                <div>
+                                    <div className="flex justify-between text-sm mb-1">
+                                        <span className="text-slate-500">매출 달성률</span>
+                                        <span className="font-bold text-slate-800">
+                                            {mPlans.revenue ? ((mActuals.revenue / mPlans.revenue) * 100).toFixed(1) : 0}%
+                                        </span>
+                                    </div>
+                                    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                        <div className="bg-indigo-500 h-full rounded-full" style={{ width: `${Math.min(((mActuals.revenue / mPlans.revenue) * 100), 100)}%` }}></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="flex justify-between text-sm mb-1">
+                                        <span className="text-slate-500">영업이익 달성률</span>
+                                        <span className="font-bold text-slate-800">
+                                            {mPlans.op_profit ? ((mActuals.op_profit / mPlans.op_profit) * 100).toFixed(1) : 0}%
+                                        </span>
+                                    </div>
+                                    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                        <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${Math.min(((mActuals.op_profit / mPlans.op_profit) * 100), 100)}%` }}></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="bg-indigo-900 p-6 rounded-xl text-white shadow-sm flex flex-col justify-center items-center text-center">
+                            <h4 className="opacity-80 text-sm mb-2">당기순이익 (Net Income)</h4>
+                            <div className="text-4xl font-bold mb-1">
+                                {mActuals.net_income?.toLocaleString()}
+                            </div>
+                            <div className={`text-sm px-2 py-1 rounded ${mActuals.net_income >= mPlans.net_income ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+                                목표 대비 {mActuals.net_income - mPlans.net_income > 0 ? '+' : ''}{(mActuals.net_income - mPlans.net_income).toLocaleString()}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ==========================================
 // [KPI 대시보드 컴포넌트] (Firestore 연동 - 기간별)
 // ==========================================
 const KPIDashboard = () => {
   const [selectedDeptId, setSelectedDeptId] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [isCommonKpiModalOpen, setIsCommonKpiModalOpen] = useState(false);
   const [isCommonFormOpen, setIsCommonFormOpen] = useState(false);
   
@@ -140,7 +418,6 @@ const KPIDashboard = () => {
     setLoading(true);
     
     // (A) 부서별 KPI 구독 (kpi_records 컬렉션 사용)
-    // 쿼리: year == currentYear AND period == currentPeriod
     const q = query(
         collection(db, 'kpi_records'), 
         where('year', '==', currentYear),
@@ -158,13 +435,12 @@ const KPIDashboard = () => {
     });
 
     // (B) 전사 공통 KPI 구독 (kpi_commons 컬렉션 사용)
-    // 문서 ID: year_period (예: 2025_1H)
     const commonDocId = `${currentYear}_${currentPeriod}`;
     const unsubCommon = onSnapshot(doc(db, 'kpi_commons', commonDocId), (docSnap) => {
         if (docSnap.exists()) {
             setCommonKpis(docSnap.data().kpis || []);
         } else {
-            setCommonKpis([]); // 해당 기간 데이터 없으면 빈 배열
+            setCommonKpis([]);
         }
     });
 
@@ -175,43 +451,32 @@ const KPIDashboard = () => {
   }, [currentYear, currentPeriod]);
 
   // --- Firestore 업데이트 함수들 ---
-
-  // 공통 헬퍼: 해당 기간/부서의 문서 ID 생성
   const getRecordDocId = (deptId) => `${currentYear}_${currentPeriod}_${deptId}`;
   const getCommonDocId = () => `${currentYear}_${currentPeriod}`;
 
-  // 실적 업데이트 (부서 개별)
   const handleUpdateKPIValue = async (deptId, kpiId, newValue) => {
     const docId = getRecordDocId(deptId);
     const currentData = deptDataMap[deptId];
-    
-    if (!currentData) return; // 데이터가 없으면 업데이트 불가 (생성 필요)
-
+    if (!currentData) return; 
     const newKpis = currentData.kpis.map(k => k.id === kpiId ? { ...k, current: Number(newValue) } : k);
-    
     await updateDoc(doc(db, 'kpi_records', docId), { kpis: newKpis });
   };
 
-  // KPI 삭제 (부서 개별)
   const handleDeleteKPI = async (deptId, kpiId) => {
     if (!window.confirm('삭제하시겠습니까?')) return;
     const docId = getRecordDocId(deptId);
     const currentData = deptDataMap[deptId];
-    
     if (!currentData) return;
-
     const newKpis = currentData.kpis.filter(k => k.id !== kpiId);
     await updateDoc(doc(db, 'kpi_records', docId), { kpis: newKpis });
   };
 
-  // KPI 저장 (부서 개별 추가/수정)
   const handleSaveKPI = async (deptId, kpiData) => {
     const docId = getRecordDocId(deptId);
     const currentData = deptDataMap[deptId];
     let newKpis = currentData ? [...currentData.kpis] : [];
 
     if (kpiData.id) {
-      // 수정
       newKpis = newKpis.map(k => k.id === kpiData.id ? { 
           ...kpiData, 
           current: Number(kpiData.current), 
@@ -219,7 +484,6 @@ const KPIDashboard = () => {
           weight: Number(kpiData.weight) 
       } : k);
     } else {
-      // 추가
       newKpis.push({ 
         ...kpiData, 
         id: Date.now().toString(), 
@@ -229,8 +493,6 @@ const KPIDashboard = () => {
       });
     }
 
-    // 문서가 없으면 생성(set), 있으면 수정(update)
-    // setDoc with merge is safer here
     await setDoc(doc(db, 'kpi_records', docId), {
         deptId: deptId,
         year: currentYear,
@@ -242,11 +504,9 @@ const KPIDashboard = () => {
     setIsModalOpen(false);
   };
 
-  // --- 공통 KPI 관련 함수들 ---
   const handleSaveCommonKPI = async (kpiData) => {
       const docId = getCommonDocId();
       let newCommonKpis = [...commonKpis];
-      
       if (kpiData.id) {
           newCommonKpis = newCommonKpis.map(k => k.id === kpiData.id ? {
               ...kpiData,
@@ -264,13 +524,11 @@ const KPIDashboard = () => {
               isCommon: true 
           });
       }
-      
       await setDoc(doc(db, 'kpi_commons', docId), { 
           year: currentYear,
           period: currentPeriod,
           kpis: newCommonKpis 
       }, { merge: true });
-      
       setIsCommonFormOpen(false);
   };
 
@@ -280,6 +538,15 @@ const KPIDashboard = () => {
       const newCommonKpis = commonKpis.filter(k => k.id !== kpiId);
       await updateDoc(doc(db, 'kpi_commons', docId), { kpis: newCommonKpis });
   };
+
+  // 부서 관리
+  const handleAddDept = async (name) => {
+    // KPI 부서 관리 기능은 여기서는 메타데이터가 코드상 상수라 제한적이지만,
+    // 필요 시 DB화 가능. 현재는 이름 변경 등 UI 액션만 제공
+    alert("현재 부서 추가 기능은 코드 상수를 수정해야 합니다.");
+  };
+  const handleRemoveDept = async (id) => { alert("부서 삭제 기능은 현재 비활성화되어 있습니다."); };
+  const handleRenameDept = async (id, newName) => { alert("부서명 수정 기능은 현재 비활성화되어 있습니다."); };
 
   // --- 계산 로직 ---
   const calculateAchievement = (target, current, lowerIsBetter = false) => {
@@ -294,13 +561,11 @@ const KPIDashboard = () => {
   const getDeptScore = (deptKpis) => {
     const allKpis = [...(deptKpis || []), ...commonKpis];
     if (allKpis.length === 0) return 0;
-
     let totalScore = 0; let totalWeight = 0;
     allKpis.forEach(kpi => {
       totalScore += calculateAchievement(kpi.target, kpi.current, kpi.lowerIsBetter) * kpi.weight;
       totalWeight += kpi.weight;
     });
-    
     return totalWeight === 0 ? 0 : Math.round(totalScore / totalWeight);
   };
 
@@ -316,7 +581,6 @@ const KPIDashboard = () => {
     return 'bg-red-500';
   };
 
-  // 현재 선택된 부서의 KPI 데이터 가져오기 (DB데이터 없으면 빈 배열)
   const selectedDeptKpis = selectedDeptId ? (deptDataMap[selectedDeptId]?.kpis || []) : [];
   const selectedDeptMeta = DEPARTMENTS_META.find(d => d.id === selectedDeptId);
 
@@ -324,7 +588,6 @@ const KPIDashboard = () => {
 
   return (
     <div className="bg-gray-50 min-h-screen p-4 rounded-xl">
-      {/* 헤더: 타이틀 + 연도/반기 선택 */}
       <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-200 pb-6">
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -334,7 +597,6 @@ const KPIDashboard = () => {
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
-            {/* 연도 선택 */}
             <div className="relative">
                 <select 
                     value={currentYear} 
@@ -345,8 +607,6 @@ const KPIDashboard = () => {
                 </select>
                 <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"/>
             </div>
-
-            {/* 반기 선택 */}
             <div className="relative">
                 <select 
                     value={currentPeriod} 
@@ -357,9 +617,7 @@ const KPIDashboard = () => {
                 </select>
                 <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"/>
             </div>
-
             <div className="w-px h-6 bg-slate-300 mx-1 hidden md:block"></div>
-
             <button 
                 onClick={() => setIsCommonKpiModalOpen(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 shadow-sm transition-colors"
@@ -372,17 +630,13 @@ const KPIDashboard = () => {
       {selectedDeptId === null ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {DEPARTMENTS_META.map((dept) => {
-            // 해당 부서의 현재 연도/반기 데이터 조회
             const deptRecord = deptDataMap[dept.id] || { kpis: [] };
             const score = getDeptScore(deptRecord.kpis);
-            
             return (
               <div key={dept.id} onClick={() => setSelectedDeptId(dept.id)}
                 className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 cursor-pointer hover:shadow-md transition-all group relative overflow-hidden"
               >
-                {/* 상단 장식 바 (점수에 따라 색상 변경) */}
                 <div className={`absolute top-0 left-0 right-0 h-1 ${score >= 90 ? 'bg-green-500' : score >= 70 ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
-                
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex items-center gap-3">
                     <div className={`p-2.5 rounded-lg bg-indigo-50 text-indigo-600`}>
@@ -397,7 +651,6 @@ const KPIDashboard = () => {
                     {score >= 90 ? '우수' : score >= 70 ? '보통' : '위험'}
                   </div>
                 </div>
-                
                 <div className="mb-4">
                   <div className="flex justify-between text-sm mb-1 text-slate-600">
                     <span className="font-semibold">종합 달성률</span>
@@ -407,17 +660,13 @@ const KPIDashboard = () => {
                     <div className={`h-full rounded-full transition-all duration-700 ${getProgressBarColor(score)}`} style={{ width: `${score}%` }}></div>
                   </div>
                 </div>
-
-                {/* KPI 미리보기 (최대 2개) */}
                 <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                    {/* 공통 KPI 1개 */}
                     {commonKpis.slice(0, 1).map(kpi => (
                         <div key={kpi.id} className="flex justify-between text-xs text-slate-500">
                             <span className="flex items-center gap-1 text-slate-400"><Building2 className="w-3 h-3"/> {kpi.name}</span>
                             <span>{Math.round(calculateAchievement(kpi.target, kpi.current, kpi.lowerIsBetter))}%</span>
                         </div>
                     ))}
-                    {/* 부서 KPI 1개 */}
                     {deptRecord.kpis.slice(0, commonKpis.length > 0 ? 1 : 2).map(kpi => (
                         <div key={kpi.id} className="flex justify-between text-xs text-slate-500">
                             <span>{kpi.name}</span>
@@ -433,7 +682,6 @@ const KPIDashboard = () => {
           })}
         </div>
       ) : (
-        // 상세 보기 화면
         selectedDeptMeta && (
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden min-h-[500px]">
            <div className="bg-slate-50 border-b border-slate-200 p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -463,7 +711,6 @@ const KPIDashboard = () => {
            </div>
            
            <div className="divide-y divide-slate-100">
-             {/* 1. 공통 KPI 섹션 */}
              {commonKpis.length > 0 && (
                  <div className="bg-slate-50/50">
                      {commonKpis.map((kpi) => {
@@ -506,7 +753,6 @@ const KPIDashboard = () => {
                  </div>
              )}
 
-             {/* 2. 부서 개별 KPI 섹션 */}
              {selectedDeptKpis.length === 0 && commonKpis.length === 0 && (
                 <div className="p-12 text-center text-slate-400">
                     <p>{currentYear}년 {currentPeriod} 지표가 없습니다.</p>
@@ -595,7 +841,6 @@ const KPIDashboard = () => {
                           </button>
                       </div>
 
-                      {/* 리스트 표시 */}
                       <div className="space-y-3">
                           {commonKpis.map(kpi => (
                               <div key={kpi.id} className="border border-slate-200 rounded-lg p-4 flex justify-between items-center bg-white">
@@ -630,6 +875,13 @@ const KPIDashboard = () => {
               )}
           </div>
       )}
+
+      {/* Department Manager Modal (Read-only for now) */}
+      {isManageModalOpen && (
+        <TeamManagerModal 
+            onClose={() => setIsManageModalOpen(false)} 
+        />
+      )}
     </div>
   );
 };
@@ -637,7 +889,6 @@ const KPIDashboard = () => {
 // KPI 입력/수정 폼 컴포넌트
 const KPIFormModal = ({ kpi, title, onClose, onSave, isCommon = false }) => {
   const [formData, setFormData] = useState(kpi || { name: '', target: '', current: 0, unit: '', weight: 0.1, lowerIsBetter: false });
-  
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
@@ -650,15 +901,12 @@ const KPIFormModal = ({ kpi, title, onClose, onSave, isCommon = false }) => {
             {isCommon ? <Building2 className="w-5 h-5 text-indigo-600"/> : <Target className="w-5 h-5 text-indigo-600"/>}
             {title}
         </h3>
-        
         {isCommon && <div className="bg-indigo-50 p-2 rounded text-xs text-indigo-700">전사 공통 지표는 모든 부서의 점수에 합산됩니다.</div>}
-
         <div className="space-y-3">
             <div>
                 <label className="text-xs font-bold text-slate-500 uppercase block mb-1">지표명</label>
-                <input name="name" value={formData.name} onChange={handleChange} placeholder="예: 매출액, 고객만족도" className="w-full border border-slate-300 p-2 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
+                <input name="name" value={formData.name} onChange={handleChange} placeholder="예: 매출액" className="w-full border border-slate-300 p-2 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
             </div>
-            
             <div className="grid grid-cols-2 gap-3">
                 <div>
                     <label className="text-xs font-bold text-slate-500 uppercase block mb-1">목표값</label>
@@ -666,10 +914,9 @@ const KPIFormModal = ({ kpi, title, onClose, onSave, isCommon = false }) => {
                 </div>
                 <div>
                     <label className="text-xs font-bold text-slate-500 uppercase block mb-1">단위</label>
-                    <input name="unit" value={formData.unit} onChange={handleChange} placeholder="원, %, 건" className="w-full border border-slate-300 p-2 rounded-lg" />
+                    <input name="unit" value={formData.unit} onChange={handleChange} placeholder="원, %" className="w-full border border-slate-300 p-2 rounded-lg" />
                 </div>
             </div>
-
             <div className="grid grid-cols-2 gap-3">
                 <div>
                     <label className="text-xs font-bold text-slate-500 uppercase block mb-1">가중치 (0~1.0)</label>
@@ -680,13 +927,11 @@ const KPIFormModal = ({ kpi, title, onClose, onSave, isCommon = false }) => {
                     <input name="current" type="number" value={formData.current} onChange={handleChange} className="w-full border border-slate-300 p-2 rounded-lg font-bold text-slate-700" />
                 </div>
             </div>
-
             <div className="flex items-center gap-2 p-2 border rounded-lg bg-slate-50">
                <input type="checkbox" id="lib" name="lowerIsBetter" checked={formData.lowerIsBetter} onChange={handleChange} className="w-4 h-4 text-indigo-600 rounded" />
-               <label htmlFor="lib" className="text-sm text-slate-600">낮을수록 좋은 지표 (예: 불량률, 비용)</label>
+               <label htmlFor="lib" className="text-sm text-slate-600">낮을수록 좋은 지표 (예: 불량률)</label>
             </div>
         </div>
-
         <div className="flex gap-2 pt-2">
           <button onClick={onClose} className="flex-1 py-2.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium transition-colors">취소</button>
           <button onClick={() => onSave(formData)} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium transition-colors">저장</button>
@@ -696,11 +941,24 @@ const KPIFormModal = ({ kpi, title, onClose, onSave, isCommon = false }) => {
   );
 };
 
+// Simple Read-only Manager for visual consistency
+const TeamManagerModal = ({ onClose }) => (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[80] backdrop-blur-sm">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex justify-between items-center mb-6">
+                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><Settings className="w-5 h-5 text-indigo-600"/> 부서 관리</h3>
+                <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+            </div>
+            <p className="text-center text-slate-500 py-4">부서 관리 기능은 현재 코드 상수로 고정되어 있습니다.</p>
+        </div>
+    </div>
+);
+
 
 // --- 메인 앱 컴포넌트 ---
 function App() {
   const [user, setUser] = useState(null);
-  const [appMode, setAppMode] = useState('meeting');
+  const [appMode, setAppMode] = useState('meeting'); // 'meeting' | 'kpi' | 'finance'
   
   // --- Meeting States ---
   const [minutes, setMinutes] = useState([]);
@@ -723,27 +981,22 @@ function App() {
   const [editingId, setEditingId] = useState(null);
   const [editingFeedbackId, setEditingFeedbackId] = useState(null);
 
-  // 인증 및 데이터 구독
   useEffect(() => {
     const initAuth = async () => {
       try {
         await signInAnonymously(auth);
       } catch (error) {
-        console.error("인증 오류:", error);
+        console.error("Auth Error:", error);
       }
     };
     initAuth();
-    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-    });
-    return () => unsubscribeAuth();
+    return onAuthStateChanged(auth, (u) => setUser(u));
   }, []);
 
   useEffect(() => {
     const q1 = query(collection(db, 'weekly_minutes'));
     const unsub1 = onSnapshot(q1, (snapshot) => {
       const loaded = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // 회의록 순서는 작성일 기준 내림차순, 같은 날짜면 부서 순서
       loaded.sort((a, b) => {
         if (a.date !== b.date) return b.date.localeCompare(a.date);
         return DEPARTMENTS.indexOf(a.department) - DEPARTMENTS.indexOf(b.department);
@@ -772,10 +1025,7 @@ function App() {
     return true;
   };
 
-  const processText = (text) => {
-    const t = text ? text.trim() : '';
-    return (t === '' || t === '-') ? '     - 특이사항 없음' : text;
-  };
+  const processText = (text) => text ? text.trim() || '     - 특이사항 없음' : '     - 특이사항 없음';
 
   const autoFormat = (val, setFunc, field, e) => {
     if (e.key === 'Enter') {
@@ -967,21 +1217,30 @@ function App() {
                 <span className="hidden sm:inline">그룹웨어</span>
                 <span className="sm:hidden">GW</span>
               </div>
+              
               <div className="hidden md:flex space-x-1 bg-gray-100 p-1 rounded-lg">
                 <button
                     onClick={() => setAppMode('meeting')}
                     className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${appMode === 'meeting' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
-                    <span className="flex items-center"><FileText className="w-4 h-4 mr-2"/>회의록 관리</span>
+                    <span className="flex items-center"><FileText className="w-4 h-4 mr-2"/>회의록</span>
                 </button>
                 <button
                     onClick={() => setAppMode('kpi')}
                     className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${appMode === 'kpi' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
-                    <span className="flex items-center"><BarChart3 className="w-4 h-4 mr-2"/>KPI 대시보드</span>
+                    <span className="flex items-center"><BarChart3 className="w-4 h-4 mr-2"/>KPI</span>
+                </button>
+                <button
+                    onClick={() => setAppMode('finance')}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${appMode === 'finance' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                    <span className="flex items-center"><PieChart className="w-4 h-4 mr-2"/>재무 관리</span>
                 </button>
               </div>
             </div>
+
+            {/* 우측 유틸리티 버튼들 */}
             <div className="flex items-center space-x-2">
                 {appMode === 'meeting' && (
                     <>
@@ -1018,6 +1277,9 @@ function App() {
                     <button onClick={() => { setAppMode('kpi'); setIsMobileMenuOpen(false); }} className={`w-full text-left px-4 py-2 rounded-md flex items-center ${appMode === 'kpi' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600'}`}>
                         <BarChart3 className="w-5 h-5 mr-3"/> KPI 대시보드
                     </button>
+                    <button onClick={() => { setAppMode('finance'); setIsMobileMenuOpen(false); }} className={`w-full text-left px-4 py-2 rounded-md flex items-center ${appMode === 'finance' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-600'}`}>
+                        <PieChart className="w-5 h-5 mr-3"/> 재무 성과 관리
+                    </button>
                 </div>
             </div>
         )}
@@ -1029,11 +1291,12 @@ function App() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
         {/* [MODE 1] KPI 대시보드 */}
-        {appMode === 'kpi' && (
-            <KPIDashboard />
-        )}
+        {appMode === 'kpi' && <KPIDashboard />}
 
-        {/* [MODE 2] 회의록 시스템 */}
+        {/* [MODE 2] 재무 관리 */}
+        {appMode === 'finance' && <FinancialDashboard />}
+
+        {/* [MODE 3] 회의록 시스템 */}
         {appMode === 'meeting' && (
             <>
                 <div className="flex space-x-4 border-b border-gray-200 mb-6">
@@ -1153,7 +1416,6 @@ function App() {
                                         <div className="flex space-x-2">
                                             <button onClick={() => {
                                                 setEditingFeedbackId(fb.id); setFeedbackInputDate(fb.date);
-                                                // [수정] 7개 팀 필드 모두 로드
                                                 setFeedbackInputData({ 
                                                     finance: fb.finance, finance_plan: fb.finance_plan, hr: fb.hr, 
                                                     global: fb.global, legal: fb.legal, logistics: fb.logistics, it: fb.it 
@@ -1166,7 +1428,6 @@ function App() {
                                         </div>
                                     </div>
                                     
-                                    {/* [수정] 7개 컬럼 그리드 대응 (반응형) */}
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:gap-px bg-indigo-50 border-t border-indigo-100">
                                         {FEEDBACK_TEAMS.map(team => (
                                             <div key={team.id} className="p-5 bg-white hover:bg-gray-50 h-full">
