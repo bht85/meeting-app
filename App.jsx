@@ -126,6 +126,18 @@ const PERIODS = [
 ];
 const MONTHS = Array.from({length: 12}, (_, i) => i + 1);
 
+// 합산 조회를 위한 탭 정의
+const AGGREGATION_TABS = [
+    { id: '1Q', label: '1Q', range: [1, 2, 3] },
+    { id: '2Q', label: '2Q', range: [4, 5, 6] },
+    { id: '3Q', label: '3Q', range: [7, 8, 9] },
+    { id: '4Q', label: '4Q', range: [10, 11, 12] },
+    { id: '1H', label: '상반기', range: [1, 2, 3, 4, 5, 6] },
+    { id: '2H', label: '하반기', range: [7, 8, 9, 10, 11, 12] },
+    { id: 'Total', label: '연간', range: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
+];
+
+
 // --- 아이콘 매핑 헬퍼 ---
 const getIconComponent = (iconName) => {
   switch (iconName) {
@@ -146,7 +158,8 @@ const getIconComponent = (iconName) => {
 // ==========================================
 const FinancialDashboard = () => {
     const [currentYear, setCurrentYear] = useState('2026');
-    const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
+    // currentTab can be a month number (1-12) or aggregation ID string ('1Q', 'Total', etc.)
+    const [currentTab, setCurrentTab] = useState(new Date().getMonth() + 1); 
     const [financeData, setFinanceData] = useState({}); // { month: { revenue: {plan:0, actual:0}, ... } }
     const [loading, setLoading] = useState(true);
 
@@ -165,20 +178,11 @@ const FinancialDashboard = () => {
         return () => unsub();
     }, [currentYear]);
 
-    // 데이터 저장 핸들러
+    // 데이터 저장 핸들러 (월별 입력 모드에서만 사용)
     const handleValueChange = async (month, field, type, value) => {
         const numValue = Number(value) || 0;
         const docId = `finance_${currentYear}`;
         
-        // Deep copy needed to update state correctly before sending to DB if we were using local state only,
-        // but here we just construct the update object for Firestore.
-        // Firestore supports dot notation for nested fields updates.
-        // e.g. "data.1.revenue.plan": 100
-        
-        const key = `data.${month}.${field}.${type}`;
-        
-        // Optimistic update locally? No, let's rely on snapshot for consistency.
-        // But we need to create the document if it doesn't exist.
         try {
             await setDoc(doc(db, 'financial_reports', docId), {
                 data: {
@@ -194,32 +198,75 @@ const FinancialDashboard = () => {
         }
     };
 
-    // 계산 로직 헬퍼
-    const getValues = (monthData) => {
-        const plans = {};
-        const actuals = {};
+    // 합산 데이터 계산 헬퍼
+    const getAggregatedValues = (range) => {
+        const aggregated = { plans: {}, actuals: {} };
         
-        // 기본 입력값 세팅
+        // 1. 단순 합산 항목 초기화
         FINANCIAL_ITEMS.forEach(item => {
             if (item.type === 'input') {
-                plans[item.id] = monthData?.[item.id]?.plan || 0;
-                actuals[item.id] = monthData?.[item.id]?.actual || 0;
+                aggregated.plans[item.id] = 0;
+                aggregated.actuals[item.id] = 0;
             }
         });
 
-        // 계산값 세팅 (순서대로 계산해야 의존성 해결됨)
+        // 2. 범위 내 월별 데이터 합산
+        range.forEach(month => {
+            const monthData = financeData[month];
+            if (monthData) {
+                FINANCIAL_ITEMS.forEach(item => {
+                    if (item.type === 'input') {
+                        aggregated.plans[item.id] += (monthData[item.id]?.plan || 0);
+                        aggregated.actuals[item.id] += (monthData[item.id]?.actual || 0);
+                    }
+                });
+            }
+        });
+
+        // 3. 계산 항목(이익 등) 재계산 (합산된 기초 데이터 기반)
         FINANCIAL_ITEMS.forEach(item => {
             if (item.type === 'calc') {
-                plans[item.id] = item.formula(plans);
-                actuals[item.id] = item.formula(actuals);
+                aggregated.plans[item.id] = item.formula(aggregated.plans);
+                aggregated.actuals[item.id] = item.formula(aggregated.actuals);
             }
         });
 
-        return { plans, actuals };
+        return aggregated;
     };
 
-    const currentMonthData = financeData[currentMonth] || {};
-    const { plans: mPlans, actuals: mActuals } = getValues(currentMonthData);
+    // 현재 탭에 따른 데이터 준비
+    const isAggregation = typeof currentTab === 'string';
+    const currentRange = isAggregation 
+        ? AGGREGATION_TABS.find(t => t.id === currentTab).range 
+        : [currentTab];
+
+    const { plans: mPlans, actuals: mActuals } = useMemo(() => {
+        if (isAggregation) {
+            return getAggregatedValues(currentRange);
+        } else {
+            // 단일 월 모드: 기존 로직 재활용
+            const monthData = financeData[currentTab] || {};
+            const plans = {};
+            const actuals = {};
+            
+            // 입력값 세팅
+            FINANCIAL_ITEMS.forEach(item => {
+                if (item.type === 'input') {
+                    plans[item.id] = monthData?.[item.id]?.plan || 0;
+                    actuals[item.id] = monthData?.[item.id]?.actual || 0;
+                }
+            });
+
+            // 계산값 세팅
+            FINANCIAL_ITEMS.forEach(item => {
+                if (item.type === 'calc') {
+                    plans[item.id] = item.formula(plans);
+                    actuals[item.id] = item.formula(actuals);
+                }
+            });
+            return { plans, actuals };
+        }
+    }, [financeData, currentTab, isAggregation, currentRange]);
 
     return (
         <div className="bg-gray-50 min-h-screen p-4 rounded-xl">
@@ -228,7 +275,7 @@ const FinancialDashboard = () => {
                     <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                         <PieChart className="w-6 h-6 text-emerald-600" /> 재무 성과 관리
                     </h2>
-                    <p className="text-sm text-slate-500 mt-1">월별 손익계산서(P&L) 목표 대비 실적 관리</p>
+                    <p className="text-sm text-slate-500 mt-1">월별 및 기간별 손익계산서(P&L) 목표 대비 실적 관리</p>
                 </div>
                 <div className="flex items-center gap-3">
                     <div className="relative">
@@ -248,37 +295,58 @@ const FinancialDashboard = () => {
                 <div className="p-20 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto text-emerald-600"/></div>
             ) : (
                 <div className="space-y-6">
-                    {/* 상단: 월 선택 탭 */}
-                    <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide">
-                        {MONTHS.map(m => (
-                            <button
-                                key={m}
-                                onClick={() => setCurrentMonth(m)}
-                                className={`px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-colors ${
-                                    currentMonth === m 
-                                    ? 'bg-emerald-600 text-white shadow-md' 
-                                    : 'bg-white text-slate-500 hover:bg-emerald-50 border border-slate-200'
-                                }`}
-                            >
-                                {m}월
-                            </button>
-                        ))}
+                    {/* 상단: 기간 선택 탭 (월별 + 합산) */}
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* 월별 탭 */}
+                        <div className="flex overflow-x-auto pb-2 gap-1 scrollbar-hide max-w-full lg:max-w-2xl">
+                            {MONTHS.map(m => (
+                                <button
+                                    key={m}
+                                    onClick={() => setCurrentTab(m)}
+                                    className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+                                        currentTab === m 
+                                        ? 'bg-emerald-600 text-white shadow-md' 
+                                        : 'bg-white text-slate-500 hover:bg-emerald-50 border border-slate-200'
+                                    }`}
+                                >
+                                    {m}월
+                                </button>
+                            ))}
+                        </div>
+                        <div className="w-px h-6 bg-slate-300 mx-2 hidden lg:block"></div>
+                        {/* 합산 탭 */}
+                        <div className="flex overflow-x-auto pb-2 gap-1 scrollbar-hide">
+                            {AGGREGATION_TABS.map(tab => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setCurrentTab(tab.id)}
+                                    className={`px-3 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-colors ${
+                                        currentTab === tab.id 
+                                        ? 'bg-slate-800 text-white shadow-md' 
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
+                                    }`}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
                     {/* 메인: 손익계산서 테이블 */}
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                        <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                            <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                                <FileText className="w-5 h-5 text-emerald-600"/> {currentMonth}월 손익계산서
+                        <div className={`p-4 border-b border-slate-100 flex justify-between items-center ${isAggregation ? 'bg-slate-800 text-white' : 'bg-slate-50'}`}>
+                            <h3 className={`font-bold text-lg flex items-center gap-2 ${isAggregation ? 'text-white' : 'text-slate-800'}`}>
+                                <FileText className={`w-5 h-5 ${isAggregation ? 'text-emerald-400' : 'text-emerald-600'}`}/> 
+                                {isAggregation ? `${AGGREGATION_TABS.find(t => t.id === currentTab)?.label} 누적 실적` : `${currentTab}월 손익계산서`}
                             </h3>
-                            <div className="text-xs text-slate-500 bg-white px-3 py-1 rounded-full border border-slate-200">
-                                단위: 만원
+                            <div className={`text-xs px-3 py-1 rounded-full border ${isAggregation ? 'bg-slate-700 border-slate-600 text-slate-300' : 'bg-white text-slate-500 border-slate-200'}`}>
+                                단위: 만원 {isAggregation && '(합산조회)'}
                             </div>
                         </div>
                         
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm text-left">
-                                <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                                <thead className={`text-xs uppercase border-b ${isAggregation ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
                                     <tr>
                                         <th className="px-6 py-3 w-1/3">구분 (Account)</th>
                                         <th className="px-6 py-3 text-right">계획 (Plan)</th>
@@ -293,10 +361,7 @@ const FinancialDashboard = () => {
                                         const actual = mActuals[item.id] || 0;
                                         const diff = actual - plan;
                                         const rate = plan !== 0 ? ((actual / plan) * 100).toFixed(1) : (actual > 0 ? '100.0' : '0.0');
-                                        const isProfit = item.id.includes('profit') || item.id === 'net_income' || item.id === 'revenue';
                                         
-                                        // 색상 로직: 이익 항목은 높아야 좋고(초록), 비용 항목은 낮아야 좋음(원가는 예외적일 수 있으나 단순화)
-                                        // 여기서는 단순하게 달성률 기준으로 표시 (매출/이익 기준)
                                         const rateColor = Number(rate) >= 100 ? 'text-emerald-600' : Number(rate) >= 80 ? 'text-yellow-600' : 'text-red-600';
 
                                         return (
@@ -306,25 +371,25 @@ const FinancialDashboard = () => {
                                                     {item.name}
                                                 </td>
                                                 <td className="px-6 py-3 text-right">
-                                                    {item.type === 'input' ? (
+                                                    {item.type === 'input' && !isAggregation ? (
                                                         <input 
                                                             type="number"
-                                                            value={currentMonthData[item.id]?.plan || ''}
+                                                            value={financeData[currentTab]?.[item.id]?.plan || ''}
                                                             placeholder="0"
-                                                            onChange={(e) => handleValueChange(currentMonth, item.id, 'plan', e.target.value)}
+                                                            onChange={(e) => handleValueChange(currentTab, item.id, 'plan', e.target.value)}
                                                             className="w-24 text-right bg-transparent border-b border-transparent hover:border-slate-300 focus:border-emerald-500 focus:outline-none transition-colors"
                                                         />
                                                     ) : (
-                                                        <span className="font-medium">{plan.toLocaleString()}</span>
+                                                        <span className="font-medium text-slate-600">{plan.toLocaleString()}</span>
                                                     )}
                                                 </td>
                                                 <td className="px-6 py-3 text-right">
-                                                    {item.type === 'input' ? (
+                                                    {item.type === 'input' && !isAggregation ? (
                                                         <input 
                                                             type="number"
-                                                            value={currentMonthData[item.id]?.actual || ''}
+                                                            value={financeData[currentTab]?.[item.id]?.actual || ''}
                                                             placeholder="0"
-                                                            onChange={(e) => handleValueChange(currentMonth, item.id, 'actual', e.target.value)}
+                                                            onChange={(e) => handleValueChange(currentTab, item.id, 'actual', e.target.value)}
                                                             className={`w-24 text-right bg-transparent border-b border-transparent hover:border-slate-300 focus:border-emerald-500 focus:outline-none transition-colors ${item.isBold ? 'font-bold' : ''}`}
                                                         />
                                                     ) : (
@@ -343,13 +408,18 @@ const FinancialDashboard = () => {
                                 </tbody>
                             </table>
                         </div>
+                        {isAggregation && (
+                            <div className="bg-yellow-50 px-4 py-2 text-xs text-yellow-700 border-t border-yellow-100 flex items-center justify-center">
+                                <Lock className="w-3 h-3 mr-1" /> 합산 조회 모드입니다. 데이터 수정은 각 '월' 탭에서 가능합니다.
+                            </div>
+                        )}
                     </div>
 
                     {/* 하단: 간단 차트 (매출 & 영업이익 추이) */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                             <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
-                                <TrendingUp className="w-5 h-5 text-indigo-600"/> {currentMonth}월 성과 요약
+                                <TrendingUp className="w-5 h-5 text-indigo-600"/> {isAggregation ? AGGREGATION_TABS.find(t => t.id === currentTab)?.label : `${currentTab}월`} 성과 요약
                             </h4>
                             <div className="space-y-4">
                                 <div>
